@@ -136,7 +136,9 @@ export function fixValue(key: string, v: string): [string, string] | null {
     if (s !== t) return [s, "Removed number formatting"];
   }
   if (isDateField(key)) {
-    let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // US spreadsheet export: MM/DD/YYYY
+    let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/); // Excel short date: M/D/YY
+    if (m && validDate(2000 + +m[3], +m[1], +m[2])) return [`${2000 + +m[3]}-${pad(+m[1])}-${pad(+m[2])}`, "Converted US short date (M/D/YY)"];
+    m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // US spreadsheet export: MM/DD/YYYY
     if (m && validDate(+m[3], +m[1], +m[2])) return [`${m[3]}-${pad(+m[1])}-${pad(+m[2])}`, "Converted US date (MM/DD/YYYY)"];
     m = t.match(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/);
     if (m && validDate(+m[1], +m[2], +m[3])) return [`${m[1]}-${pad(+m[2])}-${pad(+m[3])}`, "Converted date format"];

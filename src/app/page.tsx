@@ -34,6 +34,24 @@ function Home() {
   const [aiMapBusy, setAiMapBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
 
+  // Keep in-progress work across refreshes so an accidental reload never loses the admin's fixes.
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(localStorage.getItem("import-wip") ?? "null");
+      if (saved && (saved.step === "map" || saved.step === "review")) {
+        setFileName(saved.fileName); setHeaders(saved.headers); setRecords(saved.records); setMapping(saved.mapping);
+        setMappingSource(saved.mappingSource ?? {}); setRows(saved.rows ?? []); setStep(saved.step); setRestored(true);
+      }
+    } catch {}
+  }, []);
+  useEffect(() => {
+    try {
+      if (step === "map" || step === "review") localStorage.setItem("import-wip", JSON.stringify({ step, fileName, headers, records, mapping, mappingSource, rows }));
+      else localStorage.removeItem("import-wip");
+    } catch {}
+  }, [step, fileName, headers, records, mapping, mappingSource, rows]);
+
   const refresh = useCallback(async () => {
     const d = await fetch("/api/items").then((r) => r.json());
     setInventory(d.items);
@@ -66,8 +84,25 @@ function Home() {
   }
 
   async function onFile(f: File) {
+    if (/\.(xlsx|xls|xlsm|ods)$/i.test(f.name)) {
+      // Spreadsheets straight from Excel/Sheets: read the first sheet, keep cell text as displayed.
+      const XLSX = await import("xlsx");
+      const wb = XLSX.read(await f.arrayBuffer(), { cellDates: true });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      // Real date cells → YYYY-MM-DD (nudge by 12h to absorb SheetJS timezone drift; these are calendar dates).
+      const pad = (n: number) => String(n).padStart(2, "0");
+      for (const k of Object.keys(sheet)) {
+        const c = sheet[k];
+        if (c && c.t === "d" && c.v instanceof Date) {
+          const d = new Date(c.v.getTime() + 12 * 3600e3);
+          c.w = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+        }
+      }
+      loadText(XLSX.utils.sheet_to_csv(sheet, { blankrows: false }), f.name);
+      return;
+    }
     if (!/\.(csv|txt|tsv)$/i.test(f.name)) {
-      setError(`“${f.name}” isn't a CSV. Export your sheet as CSV (File → Download → .csv) and drop it here.`);
+      setError(`“${f.name}” isn't a CSV or Excel file. Export your sheet as CSV or .xlsx and drop it here.`);
       return;
     }
     loadText(await f.text(), f.name);
@@ -179,6 +214,15 @@ function Home() {
       </header>
 
       <main className="mx-auto max-w-[1400px] px-6 py-6">
+        {restored && (step === "map" || step === "review") && (
+          <div className="mb-4 flex items-center justify-between rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900">
+            <span>Picked up where you left off with <b>{fileName}</b>, including your edits.</span>
+            <span className="flex gap-3">
+              <button className="text-sky-700 hover:underline" onClick={() => setRestored(false)}>OK</button>
+              <button className="text-sky-700 hover:underline" onClick={() => { setRestored(false); reset(); }}>Start over</button>
+            </span>
+          </div>
+        )}
         {error && (
           <div className="mb-4 flex items-start justify-between rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
             {error}
@@ -200,9 +244,9 @@ function Home() {
               className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-16 text-center transition ${dragging ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-white hover:border-slate-400"}`}
             >
               <div className="text-4xl">📄</div>
-              <div className="mt-3 font-medium">Drag & drop a CSV here, or click to choose</div>
+              <div className="mt-3 font-medium">Drag & drop a CSV or Excel file here, or click to choose</div>
               <div className="mt-1 text-sm text-slate-500">Nothing is imported until you review and confirm.</div>
-              <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+              <input type="file" accept=".csv,text/csv,.xlsx,.xls,.ods" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
             </label>
             <div className="mt-4 flex items-center gap-2 text-sm text-slate-600">
               Try a sample:
