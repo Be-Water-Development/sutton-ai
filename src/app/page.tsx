@@ -26,6 +26,7 @@ function Home() {
   const [aiReasons, setAiReasons] = useState<Record<string, string>>({});
   const [rows, setRows] = useState<WorkRow[]>([]);
   const [inventory, setInventory] = useState<Item[]>([]);
+  const [batches, setBatches] = useState<ImportResult["batch"][]>([]);
   const [config, setConfig] = useState({ aiEnabled: false, model: "" });
   const [result, setResult] = useState<ImportResult | null>(null);
   const [importing, setImporting] = useState(false);
@@ -55,6 +56,7 @@ function Home() {
   const refresh = useCallback(async () => {
     const d = await fetch("/api/items").then((r) => r.json());
     setInventory(d.items);
+    setBatches(d.batches ?? []);
   }, []);
   useEffect(() => {
     refresh();
@@ -258,6 +260,24 @@ function Home() {
                 </button>
               ))}
             </div>
+            {batches.length > 0 && (
+              <div className="mt-8">
+                <h2 className="text-sm font-semibold text-slate-700">Recent imports</h2>
+                <ul className="mt-2 divide-y divide-slate-100 rounded-xl border border-slate-200 bg-white text-sm">
+                  {batches.slice(0, 5).map((b) => (
+                    <li key={b.id} className="flex items-center gap-3 px-3 py-2">
+                      <span className="font-medium">{b.fileName}</span>
+                      <span className="text-xs text-slate-500">{new Date(b.at).toLocaleString()}</span>
+                      <span className="ml-auto text-xs">
+                        <span className="text-emerald-700">{b.imported} imported</span>
+                        {(b.updated ?? 0) > 0 && <span className="text-sky-700"> · {b.updated} updated</span>}
+                        {b.skipped > 0 && <span className="text-rose-700"> · {b.skipped} skipped</span>}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
           </div>
         )}
 
