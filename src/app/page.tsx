@@ -29,6 +29,7 @@ function Home() {
   const [config, setConfig] = useState({ aiEnabled: false, model: "" });
   const [result, setResult] = useState<ImportResult | null>(null);
   const [importing, setImporting] = useState(false);
+  const [updateExisting, setUpdateExisting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [aiMapBusy, setAiMapBusy] = useState(false);
   const [dragging, setDragging] = useState(false);
@@ -128,7 +129,7 @@ function Home() {
       const res = await fetch("/api/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: included.map((r) => r.row), rowNumbers: included.map((r) => r.id), fileName }),
+        body: JSON.stringify({ rows: included.map((r) => r.row), rowNumbers: included.map((r) => r.id), fileName, mode: updateExisting ? "upsert" : "insert" }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Import failed");
@@ -310,6 +311,8 @@ function Home() {
             onBack={() => setStep("map")}
             onImport={doImport}
             importing={importing}
+            updateExisting={updateExisting}
+            setUpdateExisting={setUpdateExisting}
           />
         )}
 
@@ -359,6 +362,7 @@ function Done({ result, rows, onAgain, onFixRejects }: { result: ImportResult; r
           {imported.length} item{imported.length === 1 ? "" : "s"} imported from {result.batch.fileName}
         </h1>
         <p className="mt-1 text-emerald-800">
+          {(result.batch.updated ?? 0) > 0 && <>{result.batch.updated} of them updated items that already existed. </>}
           {fixedCount > 0 && <>{fixedCount} of them were cleaned up along the way. </>}
           {rejected.length > 0 ? <>{rejected.length} row{rejected.length === 1 ? " was" : "s were"} not imported because of problems (listed below). </> : <>Every row you included made it in. </>}
           {excluded.length > 0 && <>{excluded.length} row{excluded.length === 1 ? " was" : "s were"} excluded by you. </>}

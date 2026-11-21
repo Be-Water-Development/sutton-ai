@@ -12,7 +12,7 @@ export type WorkRow = {
 export type Suggestion = { id: number; field: string; value: string; reason: string; confidence: "high" | "medium" | "low" };
 
 export type ImportResult = {
-  batch: { id: string; at: string; fileName: string; imported: number; skipped: number };
+  batch: { id: string; at: string; fileName: string; imported: number; updated?: number; skipped: number };
   imported: Item[];
   rejected: { rowNumber: number; row: RawRow; errors: FieldError[] }[];
   total: number;

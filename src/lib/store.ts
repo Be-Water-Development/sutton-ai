@@ -4,7 +4,7 @@ import type { Item } from "./importer";
 
 const FILE = path.join(process.cwd(), "data", "inventory.json");
 
-export type Batch = { id: string; at: string; fileName: string; imported: number; skipped: number };
+export type Batch = { id: string; at: string; fileName: string; imported: number; updated?: number; skipped: number };
 type Db = { items: Item[]; batches: Batch[] };
 
 export async function readDb(): Promise<Db> {

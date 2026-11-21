@@ -17,6 +17,8 @@ export default function Review(props: {
   onBack: () => void;
   onImport: () => void;
   importing: boolean;
+  updateExisting: boolean;
+  setUpdateExisting: (v: boolean) => void;
 }) {
   const { rows, setRows, existing, aiEnabled } = props;
   const [filter, setFilter] = useState<Filter>("issues");
@@ -29,7 +31,7 @@ export default function Review(props: {
   const [showAllCols, setShowAllCols] = useState(false);
 
   const skip = useMemo(() => new Set(rows.map((r, i) => (r.excluded ? i : -1)).filter((i) => i >= 0)), [rows]);
-  const errors = useMemo(() => validateAll(rows.map((r) => r.row), existing, skip), [rows, existing, skip]);
+  const errors = useMemo(() => validateAll(rows.map((r) => r.row), props.updateExisting ? new Set<string>() : existing, skip), [rows, existing, skip, props.updateExisting]);
   const errOf = (i: number): FieldError[] => (rows[i].excluded ? [] : errors[i]);
 
   const counts = useMemo(() => {
@@ -79,8 +81,22 @@ export default function Review(props: {
     return visible.some(({ r, i }) => errOf(i).some((e) => e.field === k) || r.autoChanges.some((c) => c.field === k) || k in r.edited);
   });
 
-  function commitEdit(id: number, field: string, value: string) {
-    setEditing(null);
+  // After fixing a cell, jump straight to the next problem cell (Enter / Tab), like a spreadsheet.
+  function nextProblem(id: number, field: string) {
+    const cells: { id: number; field: string }[] = [];
+    for (const { r, i } of visible) for (const c of columns) if (errOf(i).some((e) => e.field === c) && !(r.id === id && c === field)) cells.push({ id: r.id, field: c });
+    if (!cells.length) return null;
+    const pos = visible.findIndex(({ r }) => r.id === id);
+    const colPos = columns.indexOf(field);
+    const after = cells.find((c) => {
+      const p = visible.findIndex(({ r }) => r.id === c.id);
+      return p > pos || (p === pos && columns.indexOf(c.field) > colPos);
+    });
+    return after ?? cells[0];
+  }
+
+  function commitEdit(id: number, field: string, value: string, advance = false) {
+    setEditing(advance ? nextProblem(id, field) : null);
     const target = rows.find((r) => r.id === id)!;
     const old = target.row[field] ?? "";
     if (old === value) return;
@@ -199,6 +215,7 @@ export default function Review(props: {
   }
 
   const toImport = counts.ready;
+  const existingHits = rows.filter((r) => !r.excluded && existing.has((r.row.sku ?? "").trim())).length;
 
   return (
     <div className="flex flex-col gap-4 pb-28">
@@ -273,7 +290,7 @@ export default function Review(props: {
             )}
           </div>
           <p className="px-1 text-xs text-slate-500">
-            Tip: click any cell to edit. Fixing one value offers to fix every row with the same problem.
+            Tip: click any red cell to edit; <kbd className="rounded border px-1">Enter</kbd> saves and jumps to the next problem, <kbd className="rounded border px-1">Esc</kbd> cancels. Fixing one value offers to fix every row with the same problem.
           </p>
         </aside>
 
@@ -344,7 +361,7 @@ export default function Review(props: {
                         return (
                           <td key={c} className={`relative border-b border-slate-100 px-1 py-1 align-top ${tone}`}>
                             {isEditing ? (
-                              <CellEditor field={c} value={val} onDone={(v) => (v === null ? setEditing(null) : commitEdit(r.id, c, v))} />
+                              <CellEditor field={c} value={val} onDone={(v, adv) => (v === null ? setEditing(null) : commitEdit(r.id, c, v, adv))} />
                             ) : (
                               <button
                                 onClick={() => !r.excluded && setEditing({ id: r.id, field: c })}
@@ -419,6 +436,12 @@ export default function Review(props: {
             <b className="text-emerald-700">{toImport}</b> of {rows.length} rows will be imported.
             {counts.issues > 0 && <> <b className="text-rose-700">{counts.issues}</b> with issues will be skipped (you'll get them back as a CSV).</>}
             {counts.excluded > 0 && <> {counts.excluded} excluded by you.</>}
+            {existingHits > 0 && (
+              <label className="mt-1 flex items-center gap-1.5 text-xs text-slate-600">
+                <input type="checkbox" checked={props.updateExisting} onChange={(e) => props.setUpdateExisting(e.target.checked)} />
+                {existingHits} SKU{existingHits === 1 ? " is" : "s are"} already in inventory — update {existingHits === 1 ? "it" : "them"} with this file instead of skipping
+              </label>
+            )}
           </div>
           <button
             disabled={toImport === 0 || props.importing}
@@ -448,18 +471,21 @@ function Stat(p: { label: string; value: number; tone: "green" | "red" | "amber"
   );
 }
 
-function CellEditor({ field, value, onDone }: { field: string; value: string; onDone: (v: string | null) => void }) {
+function CellEditor({ field, value, onDone }: { field: string; value: string; onDone: (v: string | null, advance?: boolean) => void }) {
   const [v, setV] = useState(value);
   const ref = useRef<HTMLInputElement & HTMLSelectElement>(null);
   useEffect(() => ref.current?.focus(), []);
   const options = ENUMS[field] ?? (isBool(field) ? ["true", "false"] : null);
   const key = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") onDone(v);
+    if (e.key === "Enter" || e.key === "Tab") {
+      e.preventDefault();
+      onDone(v, true);
+    }
     if (e.key === "Escape") onDone(null);
   };
   if (options)
     return (
-      <select ref={ref} value={options.includes(v) ? v : ""} onChange={(e) => onDone(e.target.value)} onBlur={() => onDone(null)} onKeyDown={key} className="w-full rounded border border-indigo-400 px-1 py-0.5 text-sm">
+      <select ref={ref} value={options.includes(v) ? v : ""} onChange={(e) => onDone(e.target.value, true)} onBlur={() => onDone(null)} onKeyDown={key} className="w-full rounded border border-indigo-400 px-1 py-0.5 text-sm">
         <option value="">{v && !options.includes(v) ? `(${v})` : "— choose —"}</option>
         {options.map((o) => (
           <option key={o}>{o}</option>
