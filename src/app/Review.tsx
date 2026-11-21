@@ -194,7 +194,7 @@ export default function Review(props: {
           <div className="border-b border-slate-200 p-4">
             <h2 className="text-lg font-semibold">Step 1 · We cleaned up {cleaned.length} row{cleaned.length === 1 ? "" : "s"} for you</h2>
             <p className="text-sm text-slate-600">
-              Formatting fixes we're certain about ({cleaned.reduce((n, r) => n + r.autoChanges.length, 0)} values). Nothing has been saved yet. If a fix looks wrong, “Keep original” puts your value back — the row then shows up in the next step if it still breaks a rule.
+              We have used deterministic rules to clean these up. “Keep original” will undo the change.
             </p>
           </div>
           {cleaned.length === 0 ? (
@@ -469,7 +469,7 @@ export default function Review(props: {
           {phase === "clean" && (
             <>
               <button onClick={props.onBack} className="text-sm text-slate-600 hover:text-slate-900">← Match columns</button>
-              <span className="text-sm text-slate-600">Looks right? Next, the rows we couldn't fix on our own.</span>
+              
               <button onClick={() => setPhase(counts.issues ? "fix" : "confirm")} className="ml-auto rounded-lg bg-slate-900 px-5 py-2.5 font-semibold text-white hover:bg-slate-700">
                 {counts.issues ? `Next: ${counts.issues} need attention →` : "Next: review & import →"}
               </button>
