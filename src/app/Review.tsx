@@ -129,6 +129,7 @@ export default function Review(props: {
       }),
     );
   }
+  const tbg = (r: WorkRow, f: string) => { const t = touched(r, f); return t ? TOUCH_BG[t] : ""; };
   const activeFixes = (r: WorkRow) => r.autoChanges.filter((c) => !c.reverted).length;
 
   async function askAi() {
@@ -427,25 +428,33 @@ export default function Review(props: {
               </label>
             )}
           </div>
+          <div className="border-b border-slate-100 px-4 py-2">
+            <Legend />
+          </div>
           <div className="max-h-[50vh] overflow-auto">
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500">
                 <tr>
-                  <th className="px-3 py-2">Row</th><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">UoM</th><th className="px-3 py-2 text-right">Unit cost</th><th className="px-3 py-2 text-right">Qty on hand</th><th className="px-3 py-2">Changes</th>
+                  <th className="px-3 py-2">Row</th><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">UoM</th><th className="px-3 py-2 text-right">Unit cost</th><th className="px-3 py-2 text-right">Qty on hand</th><th className="px-3 py-2">Changes</th><th className="px-3 py-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {readyRows.map((r) => (
                   <tr key={r.id} className="border-t border-slate-100">
                     <td className="px-3 py-1.5 tabular-nums text-slate-500">{r.id}</td>
-                    <td className="px-3 py-1.5 font-mono text-xs">{r.row.sku}</td>
-                    <td className="px-3 py-1.5">{r.row.name}</td>
-                    <td className="px-3 py-1.5">{r.row.category}</td>
-                    <td className="px-3 py-1.5">{r.row.uom}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">${Number(r.row.unit_cost).toFixed(2)}</td>
-                    <td className="px-3 py-1.5 text-right tabular-nums">{r.row.quantity_on_hand || 0}</td>
+                    <td className={`px-3 py-1.5 font-mono text-xs ${tbg(r, "sku")}`}>{r.row.sku}</td>
+                    <td className={`px-3 py-1.5 ${tbg(r, "name")}`}>{r.row.name}</td>
+                    <td className={`px-3 py-1.5 ${tbg(r, "category")}`}>{r.row.category}</td>
+                    <td className={`px-3 py-1.5 ${tbg(r, "uom")}`}>{r.row.uom}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${tbg(r, "unit_cost")}`}>${Number(r.row.unit_cost).toFixed(2)}</td>
+                    <td className={`px-3 py-1.5 text-right tabular-nums ${tbg(r, "quantity_on_hand")}`}>{r.row.quantity_on_hand || 0}</td>
                     <td className="px-3 py-1.5 text-xs">
                       {Object.keys(r.edited).length > 0 ? <span className="text-sky-700">fixed by you</span> : activeFixes(r) > 0 ? <span className="text-emerald-700">cleaned up</span> : ""}
+                    </td>
+                    <td className="px-3 py-1.5 text-right">
+                      <button onClick={() => setFullRow(r.id)} className="whitespace-nowrap rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-100">
+                        See full row
+                      </button>
                     </td>
                   </tr>
                 ))}
@@ -522,6 +531,23 @@ export default function Review(props: {
   );
 }
 
+/** How a field got its current value: rule-based cleanup (green) or edited by the admin (light blue). */
+function touched(r: WorkRow, field: string): "auto" | "user" | null {
+  if (field in r.edited) return "user";
+  if (r.autoChanges.some((c) => c.field === field && !c.reverted)) return "auto";
+  return null;
+}
+const TOUCH_BG = { auto: "bg-emerald-50", user: "bg-sky-50" } as const;
+
+function Legend() {
+  return (
+    <div className="flex items-center gap-4 text-xs text-slate-600">
+      <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm border border-emerald-300 bg-emerald-100" /> Cleaned up by rules</span>
+      <span className="flex items-center gap-1.5"><span className="h-3 w-3 rounded-sm border border-sky-300 bg-sky-100" /> Fixed by you</span>
+    </div>
+  );
+}
+
 /** Whole row in context, every field editable, problems highlighted. */
 function FullRowModal(p: { row: WorkRow; errors: FieldError[]; fields: string[]; onChange: (field: string, v: string) => void; onExclude: () => void; onClose: () => void }) {
   useEffect(() => {
@@ -544,6 +570,7 @@ function FullRowModal(p: { row: WorkRow; errors: FieldError[]; fields: string[];
           <button onClick={p.onClose} className="ml-auto rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
         </div>
         <div className="space-y-4 px-5 py-4">
+          <Legend />
           {groups.map((g) => (
             <div key={g}>
               <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{g}</h3>
@@ -553,7 +580,7 @@ function FullRowModal(p: { row: WorkRow; errors: FieldError[]; fields: string[];
                   return (
                     <label key={f.key} className="block text-sm">
                       <span className="text-xs text-slate-500">{f.label}{f.required && <span className="text-rose-500">*</span>}</span>
-                      <FieldInput field={f.key} value={p.row.row[f.key] ?? ""} bad={errs.length > 0} onCommit={(v) => p.onChange(f.key, v)} />
+                      <FieldInput field={f.key} value={p.row.row[f.key] ?? ""} bad={errs.length > 0} touch={touched(p.row, f.key)} onCommit={(v) => p.onChange(f.key, v)} />
                       {errs.map((e) => <span key={e.message} className="block text-xs text-rose-700">{e.message}</span>)}
                     </label>
                   );
@@ -571,11 +598,11 @@ function FullRowModal(p: { row: WorkRow; errors: FieldError[]; fields: string[];
   );
 }
 
-function FieldInput({ field, value, bad, onCommit }: { field: string; value: string; bad: boolean; onCommit: (v: string) => void }) {
+function FieldInput({ field, value, bad, touch, onCommit }: { field: string; value: string; bad: boolean; touch: "auto" | "user" | null; onCommit: (v: string) => void }) {
   const [v, setV] = useState(value);
   useEffect(() => setV(value), [value]);
   const options = ENUMS[field] ?? (isBool(field) ? ["true", "false"] : null);
-  const cls = `mt-0.5 w-full rounded-md border px-2 py-1 text-sm ${bad ? "border-rose-400 bg-rose-50" : "border-slate-300"}`;
+  const cls = `mt-0.5 w-full rounded-md border px-2 py-1 text-sm ${bad ? "border-rose-400 bg-rose-50" : touch === "auto" ? "border-emerald-300 bg-emerald-50" : touch === "user" ? "border-sky-300 bg-sky-50" : "border-slate-300"}`;
   if (options)
     return (
       <select value={options.includes(v) ? v : ""} onChange={(e) => { setV(e.target.value); onCommit(e.target.value); }} className={cls}>
