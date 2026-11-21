@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { CATEGORIES, FIELDS, UOMS, validateAll, type FieldError } from "@/lib/importer";
+import { CATEGORIES, FIELDS, UOMS, validateAll, validateRow, type FieldError } from "@/lib/importer";
 import type { Suggestion, WorkRow } from "./types";
 
 export type Phase = "clean" | "fix" | "confirm";
@@ -133,6 +133,7 @@ export default function Review(props: {
 
   async function askAi() {
     setAiBusy(true);
+    setAiRan(true);
     setAiError(null);
     try {
       // Every click sends all unsolved rows (in batches of 40, in parallel) and replaces previous suggestions.
@@ -146,7 +147,12 @@ export default function Review(props: {
           return data.suggestions as Suggestion[];
         }),
       );
-      const valid = results.flat().filter((s) => rows.some((r) => r.id === s.id) && (rows.find((r) => r.id === s.id)!.row[s.field] ?? "") !== s.value);
+      // Only show suggestions that actually clear the problem on that field.
+      const valid = results.flat().filter((s) => {
+        const r = rows.find((x) => x.id === s.id);
+        if (!r || (r.row[s.field] ?? "") === s.value) return false;
+        return !validateRow({ ...r.row, [s.field]: s.value }).some((e) => e.field === s.field);
+      });
       setSuggestions(valid);
       setAiRan(true);
     } catch (e) {
@@ -256,25 +262,31 @@ export default function Review(props: {
               <h2 className="text-lg font-semibold">
                 Step 2 · Fix {problems.length} problem{problems.length === 1 ? "" : "s"}
               </h2>
-              <p className="text-sm text-slate-600">
-                Click a value to fix it — <kbd className="rounded border px-1 text-xs">Enter</kbd> saves and moves to the next one. Anything left unfixed is skipped and handed back to you as a CSV.
-              </p>
             </div>
             <div className="ml-auto flex items-center gap-2">
               <button
                 disabled={!aiEnabled || aiBusy || counts.issues === 0}
                 onClick={askAi}
                 title={aiEnabled ? "AI proposes fixes (e.g. category from the item name). Nothing changes until you accept." : "Set OPENROUTER_API_KEY to enable"}
-                className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
+                className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-40"
               >
                 {aiBusy ? "✨ Thinking…" : "✨ Suggest fixes"}
               </button>
               {suggestions.length > 0 && (
-                <button onClick={acceptAllSuggestions} className="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
+                <button onClick={acceptAllSuggestions} className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm font-medium text-slate-800 hover:bg-slate-100">
                   Accept all {suggestions.length}
                 </button>
               )}
             </div>
+          </div>
+          <div className="mx-4 mt-3 flex gap-3 rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+            <span className="text-lg leading-none">💡</span>
+            <ul className="space-y-1">
+              <li><b>Click a red value</b> to edit it. Press <kbd className="rounded border border-slate-300 bg-white px-1 text-xs">Enter</kbd> to save and jump to the next one.</li>
+              <li><b>✨ Suggest fixes</b> has AI propose values — nothing changes until you accept.</li>
+              <li><b>See full row</b> for context, or <b>Exclude row</b> to leave it out.</li>
+              <li>Anything left unfixed is skipped, and you'll get it back as a CSV.</li>
+            </ul>
           </div>
           {aiError && <p className="border-b border-slate-100 px-4 py-2 text-xs text-rose-700">{aiError}</p>}
           <div className="px-4 py-2 text-xs text-slate-600">
@@ -290,9 +302,9 @@ export default function Review(props: {
                   <th className="px-2 py-2">Problem</th>
                   {aiRan && (
                     <>
-                      <th className="w-48 bg-indigo-50 px-2 py-2 text-indigo-700">✨ Proposed value</th>
-                      <th className="w-56 bg-indigo-50 px-2 py-2 text-indigo-700">Reason</th>
-                      <th className="w-36 bg-indigo-50 px-2 py-2"></th>
+                      <th className="w-48 px-2 py-2">✨ Proposed value</th>
+                      <th className="w-56 px-2 py-2">Reason</th>
+                      <th className="w-36 px-2 py-2"></th>
                     </>
                   )}
                   <th className="w-48 px-4 py-2"></th>
@@ -337,12 +349,12 @@ export default function Review(props: {
                       {aiRan &&
                         (sug && !p.solved ? (
                           <>
-                            <td className="bg-indigo-50/60 px-2 py-1.5">
-                              <code className="block rounded border border-indigo-300 bg-white px-2 py-1 text-indigo-900">{sug.value === "" ? "(empty)" : sug.value}</code>
+                            <td className="px-2 py-1.5">
+                              <div className="rounded border border-emerald-300 bg-emerald-50 px-2 py-1 text-emerald-900">{sug.value === "" ? "(empty)" : sug.value}</div>
                             </td>
-                            <td className="bg-indigo-50/60 px-2 py-2 text-xs text-indigo-900">{sug.reason}</td>
-                            <td className="whitespace-nowrap bg-indigo-50/60 px-2 py-1.5">
-                              <button onClick={() => commitEdit(sug.id, sug.field, sug.value)} className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700">
+                            <td className="px-2 py-2 text-xs text-slate-600">{sug.reason}</td>
+                            <td className="whitespace-nowrap px-2 py-1.5">
+                              <button onClick={() => commitEdit(sug.id, sug.field, sug.value)} className="rounded-md bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-emerald-700">
                                 Accept
                               </button>
                               <button onClick={() => setSuggestions((s) => s.filter((x) => x !== sug))} className="ml-2 text-xs text-slate-500 hover:text-slate-900 hover:underline">
@@ -351,7 +363,8 @@ export default function Review(props: {
                             </td>
                           </>
                         ) : (
-                          <td colSpan={3} className="bg-indigo-50/30 px-2 py-2 text-xs text-slate-400">
+                          <td colSpan={3} className="px-2 py-2 text-xs text-slate-400">
+                            {aiBusy && !p.solved ? <span className="inline-block h-4 w-40 animate-pulse rounded bg-slate-200" /> : p.solved ? "" : "—"}
                           </td>
                         ))}
                       <td className="whitespace-nowrap px-4 py-2 text-right text-xs">
