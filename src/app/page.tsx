@@ -1,103 +1,443 @@
-import Image from "next/image";
+"use client";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Papa from "papaparse";
+import { FIELDS, applyMapping, autofixRow, guessMapping, rowsToCsv, type Item, type RawRow } from "@/lib/importer";
+import Review from "./Review";
+import type { ImportResult, WorkRow } from "./types";
+
+type Step = "upload" | "map" | "review" | "done";
 
 export default function Home() {
-  return (
-    <div className="font-sans grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20">
-      <main className="flex flex-col gap-[32px] row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="font-mono list-inside list-decimal text-sm/6 text-center sm:text-left">
-          <li className="mb-2 tracking-[-.01em]">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] font-mono font-semibold px-1 py-0.5 rounded">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li className="tracking-[-.01em]">
-            Save and see your changes instantly.
-          </li>
-        </ol>
+  const [step, setStep] = useState<Step>("upload");
+  const [fileName, setFileName] = useState("");
+  const [headers, setHeaders] = useState<string[]>([]);
+  const [records, setRecords] = useState<RawRow[]>([]);
+  const [mapping, setMapping] = useState<Record<string, string | null>>({});
+  const [mappingSource, setMappingSource] = useState<Record<string, "auto" | "ai" | "you">>({});
+  const [aiReasons, setAiReasons] = useState<Record<string, string>>({});
+  const [rows, setRows] = useState<WorkRow[]>([]);
+  const [inventory, setInventory] = useState<Item[]>([]);
+  const [config, setConfig] = useState({ aiEnabled: false, model: "" });
+  const [result, setResult] = useState<ImportResult | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [aiMapBusy, setAiMapBusy] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:w-auto"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent font-medium text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 w-full sm:w-auto md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
+  const refresh = useCallback(async () => {
+    const d = await fetch("/api/items").then((r) => r.json());
+    setInventory(d.items);
+  }, []);
+  useEffect(() => {
+    refresh();
+    fetch("/api/config").then((r) => r.json()).then(setConfig);
+  }, [refresh]);
+
+  const existing = useMemo(() => new Set(inventory.map((i) => i.sku)), [inventory]);
+
+  function loadText(text: string, name: string) {
+    setError(null);
+    const parsed = Papa.parse<RawRow>(text.replace(/^﻿/, ""), { header: true, skipEmptyLines: "greedy" });
+    const hs = (parsed.meta.fields ?? []).filter((h) => h.trim() !== "");
+    if (!hs.length || !parsed.data.length) {
+      setError("That file doesn't look like a CSV with a header row and at least one item.");
+      return;
+    }
+    const m = guessMapping(hs);
+    setFileName(name);
+    setHeaders(hs);
+    setRecords(parsed.data);
+    setMapping(m);
+    setMappingSource(Object.fromEntries(hs.filter((h) => m[h]).map((h) => [h, "auto" as const])));
+    setAiReasons({});
+    setStep("map");
+    // Let AI take a pass at anything we couldn't match by name.
+    if (config.aiEnabled && hs.some((h) => !m[h])) aiMap(hs, parsed.data, m);
+  }
+
+  async function onFile(f: File) {
+    if (!/\.(csv|txt|tsv)$/i.test(f.name)) {
+      setError(`“${f.name}” isn't a CSV. Export your sheet as CSV (File → Download → .csv) and drop it here.`);
+      return;
+    }
+    loadText(await f.text(), f.name);
+  }
+
+  async function aiMap(hs = headers, recs = records, current = mapping) {
+    const unmapped = hs.filter((h) => !current[h]);
+    if (!unmapped.length) return;
+    setAiMapBusy(true);
+    try {
+      const samples = Object.fromEntries(unmapped.map((h) => [h, recs.map((r) => r[h]).filter(Boolean).slice(0, 5)]));
+      const res = await fetch("/api/ai/map", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ headers: unmapped, samples, taken: Object.values(current).filter(Boolean) }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      const valid = new Set(FIELDS.map((f) => f.key));
+      const taken = new Set(Object.values(current).filter(Boolean));
+      const next = { ...current };
+      const src: Record<string, "ai"> = {};
+      const reasons: Record<string, string> = {};
+      for (const [h, v] of Object.entries(data.mapping as Record<string, { field: string | null; reason: string }>)) {
+        if (!(h in next)) continue;
+        reasons[h] = v.reason;
+        if (v.field && valid.has(v.field) && !taken.has(v.field)) {
+          next[h] = v.field;
+          taken.add(v.field);
+          src[h] = "ai";
+        }
+      }
+      setMapping(next);
+      setMappingSource((s) => ({ ...s, ...src }));
+      setAiReasons((r) => ({ ...r, ...reasons }));
+    } catch (e) {
+      setError(`AI mapping failed: ${e instanceof Error ? e.message : e}. You can still map columns by hand.`);
+    } finally {
+      setAiMapBusy(false);
+    }
+  }
+
+  function goReview() {
+    const mapped = applyMapping(records, mapping);
+    setRows(
+      mapped.map((orig, i) => {
+        const { row, changes } = autofixRow(orig);
+        return { id: i + 1, row, original: orig, autoChanges: changes, edited: {}, excluded: false };
+      }),
+    );
+    setStep("review");
+  }
+
+  async function doImport() {
+    setImporting(true);
+    setError(null);
+    try {
+      const included = rows.filter((r) => !r.excluded);
+      const res = await fetch("/api/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: included.map((r) => r.row), rowNumbers: included.map((r) => r.id), fileName }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error ?? "Import failed");
+      setResult({ ...data, excluded: rows.filter((r) => r.excluded) });
+      await refresh();
+      setStep("done");
+    } catch (e) {
+      setError(String(e instanceof Error ? e.message : e));
+    } finally {
+      setImporting(false);
+    }
+  }
+
+  function reset() {
+    setStep("upload");
+    setResult(null);
+    setRows([]);
+    setError(null);
+  }
+
+  const missingRequired = FIELDS.filter((f) => f.required && !Object.values(mapping).includes(f.key));
+
+  return (
+    <div className="min-h-screen bg-slate-50 text-slate-900">
+      <header className="border-b border-slate-200 bg-white">
+        <div className="mx-auto flex max-w-[1400px] items-center gap-6 px-6 py-3">
+          <div className="flex items-center gap-2 font-semibold">
+            <span className="grid h-7 w-7 place-items-center rounded-lg bg-slate-900 text-sm text-white">▦</span> Inventory Import
+          </div>
+          <Stepper step={step} />
+          <div className="ml-auto text-xs text-slate-500">
+            <b className="text-slate-800">{inventory.length}</b> items in inventory
+            {inventory.length > 0 && step === "upload" && (
+              <button
+                className="ml-2 text-rose-600 hover:underline"
+                onClick={async () => {
+                  if (!confirm(`Delete all ${inventory.length} items from inventory? (demo reset)`)) return;
+                  await fetch("/api/items", { method: "DELETE" });
+                  refresh();
+                }}
+              >
+                reset
+              </button>
+            )}
+          </div>
         </div>
+      </header>
+
+      <main className="mx-auto max-w-[1400px] px-6 py-6">
+        {error && (
+          <div className="mb-4 flex items-start justify-between rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+            {error}
+            <button onClick={() => setError(null)} className="ml-4 text-rose-500">✕</button>
+          </div>
+        )}
+
+        {step === "upload" && (
+          <div className="mx-auto max-w-2xl">
+            <h1 className="text-2xl font-bold">Bring your inventory in</h1>
+            <p className="mt-1 text-slate-600">
+              Drop the CSV exported from your spreadsheet. Your column names don't need to match ours. We'll map them, fix what's safe to fix, and show you
+              exactly what will be imported before anything is saved.
+            </p>
+            <label
+              onDragOver={(e) => { e.preventDefault(); setDragging(true); }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => { e.preventDefault(); setDragging(false); const f = e.dataTransfer.files[0]; if (f) onFile(f); }}
+              className={`mt-6 flex cursor-pointer flex-col items-center justify-center rounded-2xl border-2 border-dashed px-6 py-16 text-center transition ${dragging ? "border-indigo-500 bg-indigo-50" : "border-slate-300 bg-white hover:border-slate-400"}`}
+            >
+              <div className="text-4xl">📄</div>
+              <div className="mt-3 font-medium">Drag & drop a CSV here, or click to choose</div>
+              <div className="mt-1 text-sm text-slate-500">Nothing is imported until you review and confirm.</div>
+              <input type="file" accept=".csv,text/csv" className="hidden" onChange={(e) => e.target.files?.[0] && onFile(e.target.files[0])} />
+            </label>
+            <div className="mt-4 flex items-center gap-2 text-sm text-slate-600">
+              Try a sample:
+              {["items_messy.csv", "items_clean.csv"].map((f) => (
+                <button key={f} onClick={async () => loadText(await fetch(`/samples/${f}`).then((r) => r.text()), f)} className="rounded-md border border-slate-300 bg-white px-2 py-1 hover:bg-slate-100">
+                  {f}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {step === "map" && (
+          <div className="mx-auto max-w-4xl">
+            <h1 className="text-2xl font-bold">Match your columns</h1>
+            <p className="mt-1 text-slate-600">
+              We matched <b>{Object.values(mapping).filter(Boolean).length}</b> of {headers.length} columns in <b>{fileName}</b> ({records.length} rows).
+              Check the ones that look off. Columns set to “Don't import” are ignored.
+            </p>
+            {aiMapBusy && <p className="mt-2 text-sm text-indigo-700">✨ AI is looking at the columns we couldn't match…</p>}
+            {missingRequired.length > 0 && (
+              <div className="mt-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+                No column for required field{missingRequired.length > 1 ? "s" : ""}: <b>{missingRequired.map((f) => f.label).join(", ")}</b>. You can still continue and fill them in on the next step.
+              </div>
+            )}
+            <div className="mt-4 overflow-hidden rounded-xl border border-slate-200 bg-white">
+              <table className="w-full text-sm">
+                <thead className="bg-slate-50 text-left text-xs text-slate-500">
+                  <tr>
+                    <th className="px-3 py-2">Your column</th>
+                    <th className="px-3 py-2">Sample values</th>
+                    <th className="px-3 py-2">Imports as</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...headers].sort((a, b) => Number(!!mapping[a]) - Number(!!mapping[b]) || FIELDS.findIndex((f) => f.key === mapping[a]) - FIELDS.findIndex((f) => f.key === mapping[b])).map((h) => {
+                    const src = mappingSource[h];
+                    return (
+                      <tr key={h} className="border-t border-slate-100">
+                        <td className="px-3 py-2 font-medium">{h.trim() || <i>(blank)</i>}</td>
+                        <td className="max-w-[280px] truncate px-3 py-2 text-xs text-slate-500">
+                          {records.map((r) => r[h]).filter(Boolean).slice(0, 3).join(" · ") || <i>empty</i>}
+                        </td>
+                        <td className="px-3 py-2">
+                          <div className="flex items-center gap-2">
+                            <select
+                              value={mapping[h] ?? ""}
+                              onChange={(e) => {
+                                const v = e.target.value || null;
+                                setMapping((m) => {
+                                  const n = { ...m };
+                                  for (const k of Object.keys(n)) if (v && n[k] === v) n[k] = null; // one column per field
+                                  n[h] = v;
+                                  return n;
+                                });
+                                setMappingSource((s) => ({ ...s, [h]: "you" }));
+                              }}
+                              className={`rounded-md border px-2 py-1 ${mapping[h] ? "border-slate-300" : "border-dashed border-slate-300 text-slate-400"}`}
+                            >
+                              <option value="">Don't import</option>
+                              {[...new Set(FIELDS.map((f) => f.group))].map((g) => (
+                                <optgroup key={g} label={g}>
+                                  {FIELDS.filter((f) => f.group === g).map((f) => (
+                                    <option key={f.key} value={f.key}>
+                                      {f.label}
+                                      {f.required ? " *" : ""}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                            {src === "auto" && mapping[h] && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-800">matched</span>}
+                            {src === "ai" && mapping[h] && <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] text-indigo-800" title={aiReasons[h]}>✨ AI</span>}
+                            {!mapping[h] && aiReasons[h] && <span className="text-[11px] text-slate-400" title={aiReasons[h]}>✨ {aiReasons[h]}</span>}
+                          </div>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+            <div className="mt-4 flex items-center gap-3">
+              <button onClick={reset} className="text-sm text-slate-600 hover:text-slate-900">← Choose another file</button>
+              {config.aiEnabled && headers.some((h) => !mapping[h]) && (
+                <button disabled={aiMapBusy} onClick={() => aiMap()} className="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
+                  ✨ Ask AI about unmatched columns
+                </button>
+              )}
+              <button onClick={goReview} className="ml-auto rounded-lg bg-slate-900 px-5 py-2.5 font-semibold text-white hover:bg-slate-700">
+                Review {records.length} rows →
+              </button>
+            </div>
+          </div>
+        )}
+
+        {step === "review" && (
+          <Review
+            rows={rows}
+            setRows={(fn) => setRows(fn)}
+            existing={existing}
+            mappedFields={Object.values(mapping).filter(Boolean) as string[]}
+            aiEnabled={config.aiEnabled}
+            fileName={fileName}
+            onBack={() => setStep("map")}
+            onImport={doImport}
+            importing={importing}
+          />
+        )}
+
+        {step === "done" && result && <Done result={result} rows={rows} onAgain={reset} onFixRejects={(rs) => {
+          // Put the rejected rows back into review so they can be fixed without leaving the app.
+          setRows(rs);
+          setStep("review");
+        }} />}
       </main>
-      <footer className="row-start-3 flex gap-[24px] flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+    </div>
+  );
+}
+
+function Stepper({ step }: { step: Step }) {
+  const steps: [Step, string][] = [["upload", "Upload"], ["map", "Match columns"], ["review", "Review & fix"], ["done", "Done"]];
+  const at = steps.findIndex(([s]) => s === step);
+  return (
+    <ol className="hidden items-center gap-2 text-xs md:flex">
+      {steps.map(([s, label], i) => (
+        <li key={s} className="flex items-center gap-2">
+          <span className={`grid h-5 w-5 place-items-center rounded-full text-[10px] font-bold ${i < at ? "bg-emerald-500 text-white" : i === at ? "bg-slate-900 text-white" : "bg-slate-200 text-slate-500"}`}>
+            {i < at ? "✓" : i + 1}
+          </span>
+          <span className={i === at ? "font-semibold" : "text-slate-500"}>{label}</span>
+          {i < steps.length - 1 && <span className="text-slate-300">—</span>}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function download(name: string, text: string) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([text], { type: "text/csv" }));
+  a.download = name;
+  a.click();
+}
+
+function Done({ result, rows, onAgain, onFixRejects }: { result: ImportResult; rows: WorkRow[]; onAgain: () => void; onFixRejects: (rows: WorkRow[]) => void }) {
+  const { imported, rejected, excluded } = result;
+  const fixedCount = rows.filter((r) => imported.some((i) => i.sku === r.row.sku) && (r.autoChanges.length || Object.keys(r.edited).length)).length;
+  return (
+    <div className="mx-auto max-w-5xl">
+      <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6">
+        <div className="text-3xl">✅</div>
+        <h1 className="mt-2 text-2xl font-bold text-emerald-900">
+          {imported.length} item{imported.length === 1 ? "" : "s"} imported from {result.batch.fileName}
+        </h1>
+        <p className="mt-1 text-emerald-800">
+          {fixedCount > 0 && <>{fixedCount} of them were cleaned up along the way. </>}
+          {rejected.length > 0 ? <>{rejected.length} row{rejected.length === 1 ? " was" : "s were"} not imported because of problems (listed below). </> : <>Every row you included made it in. </>}
+          {excluded.length > 0 && <>{excluded.length} row{excluded.length === 1 ? " was" : "s were"} excluded by you. </>}
+          Inventory now has <b>{result.total}</b> items.
+        </p>
+        <div className="mt-4 flex flex-wrap gap-2">
+          {(rejected.length > 0 || excluded.length > 0) && (
+            <>
+              <button
+                onClick={() =>
+                  onFixRejects([
+                    ...rejected.map((r) => rows.find((w) => w.id === r.rowNumber)!).filter(Boolean),
+                    ...excluded.map((r) => ({ ...r, excluded: false })),
+                  ].sort((a, b) => a.id - b.id))
+                }
+                className="rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700"
+              >
+                Fix the {rejected.length + excluded.length} remaining rows here
+              </button>
+              <button
+                onClick={() => {
+                  const all = [...rejected.map((r) => ({ row: r.row, msg: r.errors.map((e) => `${e.field}: ${e.message}`).join(" | ") })), ...excluded.map((r) => ({ row: r.row, msg: "excluded during review" }))];
+                  download(`not-imported-${result.batch.fileName}`, rowsToCsv(all.map((a) => a.row), (i) => all[i].msg));
+                }}
+                className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-100"
+              >
+                Download rows not imported (CSV with reasons)
+              </button>
+            </>
+          )}
+          <button
+            onClick={() => download(`imported-${result.batch.fileName.replace(/\.csv$/, "")}.json`, JSON.stringify(imported, null, 2))}
+            className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-100"
+          >
+            Download imported items (JSON)
+          </button>
+          <button onClick={onAgain} className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm hover:bg-slate-100">
+            Import another file
+          </button>
+        </div>
+      </div>
+
+      {rejected.length > 0 && (
+        <section className="mt-6">
+          <h2 className="font-semibold">Not imported</h2>
+          <div className="mt-2 overflow-hidden rounded-xl border border-rose-200 bg-white">
+            <table className="w-full text-sm">
+              <thead className="bg-rose-50 text-left text-xs text-rose-800">
+                <tr><th className="px-3 py-2">Row</th><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Why</th></tr>
+              </thead>
+              <tbody>
+                {rejected.map((r) => (
+                  <tr key={r.rowNumber} className="border-t border-rose-100 align-top">
+                    <td className="px-3 py-2 tabular-nums text-slate-500">{r.rowNumber}</td>
+                    <td className="px-3 py-2 font-mono text-xs">{r.row.sku || "—"}</td>
+                    <td className="px-3 py-2">{r.row.name || "—"}</td>
+                    <td className="px-3 py-2 text-rose-700">{r.errors.map((e) => e.message).join("; ")}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
+
+      <section className="mt-6">
+        <h2 className="font-semibold">Imported</h2>
+        <div className="mt-2 max-h-[50vh] overflow-auto rounded-xl border border-slate-200 bg-white">
+          <table className="w-full text-sm">
+            <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500">
+              <tr><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">UoM</th><th className="px-3 py-2 text-right">Unit cost</th><th className="px-3 py-2 text-right">On hand</th><th className="px-3 py-2">Vendors</th><th className="px-3 py-2">Status</th></tr>
+            </thead>
+            <tbody>
+              {imported.map((i) => (
+                <tr key={i.sku} className="border-t border-slate-100">
+                  <td className="px-3 py-1.5 font-mono text-xs">{i.sku}</td>
+                  <td className="px-3 py-1.5">{i.name}</td>
+                  <td className="px-3 py-1.5">{i.category}</td>
+                  <td className="px-3 py-1.5">{i.uom}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">${i.unit_cost.toFixed(2)}</td>
+                  <td className="px-3 py-1.5 text-right tabular-nums">{i.quantity_on_hand}</td>
+                  <td className="px-3 py-1.5 text-xs text-slate-600">{i.vendors.map((v) => v.vendor_name + (v.is_preferred ? " ★" : "")).join(", ")}</td>
+                  <td className="px-3 py-1.5 text-xs">{i.is_active ? "Active" : "Inactive"}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </section>
     </div>
   );
 }

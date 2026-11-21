@@ -1,0 +1,26 @@
+sku,name,description,category,uom,unit_cost,quantity_on_hand,reorder_point,is_active,lot_tracked,tags,first_received_on,discontinued_on,length,width,height,dimension_unit,vendor_1_name,vendor_1_sku,vendor_1_unit_cost,vendor_1_lead_time_days,vendor_1_preferred,vendor_2_name,vendor_2_sku,vendor_2_unit_cost,vendor_2_lead_time_days,vendor_2_preferred,vendor_3_name,vendor_3_sku,vendor_3_unit_cost,vendor_3_lead_time_days,vendor_3_preferred
+BZCL-2BF,Stainless Caster 3in,Stainless caster 3in for general use.,components,EA,9.75,1582,,true,true,food-safe,2021-06-08,,,,,,Northwind Supply,NO-65575,6.96,38,true,,,,,,,,,,
+TPPS-2QB,Zinc-Plated Bar Stock,,raw-materials,KG,180.12,3285,461,true,false,kitted;rohs;seasonal,2025-01-19,,,,,,Northwind Supply,NO-31281,107,49,false,Ridgeline Metals,RI-74917,117.16,33,true,,,,,
+NHWF-829,Brass Foam Insert,Brass foam insert for general use.,packaging,EA,4.1,3914,188,true,false,fragile;imported;kitted,2025-07-01,,18.9,15.2,38.5,cm,Ridgeline Metals,RI-71161,2.3,59,true,,,,,,,,,,
+CSEP-EFB,Nylon Degreaser,Nylon degreaser for general use.,supplies,BX,51.61,1024,,true,false,,2023-06-12,,,,,,Acme Industrial,AC-94142,33.6,5,true,,,,,,,,,,
+VPAC-L3N,Fiberglass Rod 1/2in,Fiberglass rod 1/2in for general use.,raw-materials,KG,190,4064,305,false,false,rohs;imported;oversize,2019-03-22,2026-07-17,97.1,67.7,29.3,in,Copperline Supply,CO-60839,140.88,,true,,,,,,,,,,
+XSQU-58W,Brass Zip Ties (100),Brass zip ties (100) for general use.,supplies,L,38.62,,133,false,false,fragile,2024-06-04,2025-08-11,84.4,71.8,36.9,cm,Acme Industrial,,27.26,28,false,Copperline Supply,CO-18354,23.42,9,false,,,,,
+GDEB-LMZ,Kraft Sanding Disc,,supplies,L,1.34,,427,true,false,,2021-11-15,,,,,,Acme Industrial,AC-53890,0.86,36,true,,,,,,,,,,
+FJSD-AYY,Kraft Stool,,finished-goods,EA,769.57,4561,,false,false,,2025-04-22,2026-03-27,100.1,37.9,44.7,cm,Bluefin Packaging,BL-31781,596.67,,false,Northwind Supply,NO-14473,638.11,18,false,Ridgeline Metals,RI-57303,623.8,20,false
+LMEK-F6T,Nylon Bracket,Nylon bracket for general use.,components,EA,26.45,,,true,false,oversize;hazmat;domestic,,,,,,,Tidewater Fasteners,TI-51198,16.62,55,false,Keystone Components,KE-62727,22.38,37,false,,,,,
+SNRV-2N8,Stainless Rod 1/2in,Stainless rod 1/2in for general use.,raw-materials,KG,274.05,142,9,true,false,oversize;seasonal,2025-01-18,,,,,,Bluefin Packaging,BL-21203,220.11,,false,Ridgeline Metals,RI-68885,206.39,47,false,Copperline Supply,CO-44033,154.29,30,false
+VUMK-DG8,Poly Spring,Poly spring for general use.,components,BX,12.37,,,true,false,bulk;oversize;kitted,2019-01-20,,,,,,Northwind Supply,NO-10354,9.16,,false,,,,,,,,,,
+PUSH-J2R,Copper Crate,,packaging,BX,5.13,416,,true,false,,,,50.7,8.1,46.2,cm,Acme Industrial,AC-56013,4.27,3,false,Copperline Supply,CO-91459,4.29,44,false,Tidewater Fasteners,,4.18,26,true
+TKYU-6E4,Zinc-Plated Bracket,,components,BX,16.43,,433,true,true,oversize;kitted,2025-12-26,,,,,,,,,,,,,,,,,,,,
+XJBN-CPK,Nylon Workbench,"Nylon workbench, general purpose",finished-goods,EA,536.96,3945,264,true,true,imported,,,,,,,Acme Industrial,AC-45992,344.2,36,false,,,,,,,,,,
+HDKW-V45,Brass Pallet Wrap,,packaging,EA,0.57,2061,35,true,true,fragile;seasonal;imported,2022-03-22,,99.9,77.9,3.9,cm,Tidewater Fasteners,,0.42,55,false,Summit Polymers,SU-14880,0.47,39,false,Northwind Supply,,0.36,34,true
+KQQP-TDX,Stainless Mailer Bag,Stainless mailer bag for general use.,packaging,EA,3.63,2124,,true,false,domestic,2020-09-06,,,,,,Summit Polymers,,2.89,4,true,Copperline Supply,,2.01,53,false,Acme Industrial,AC-75293,2.72,2,false
+TXZH-SDD,Poly Tool Cart,Poly tool cart for general use.,finished-goods,EA,644.68,,206,true,false,imported;fragile,2022-12-13,,20.9,23.2,22.4,in,Copperline Supply,CO-75620,537.5,43,false,Acme Industrial,,448.36,,true,,,,,
+QRAM-M7R,Brass Hinge,Brass hinge for general use.,components,EA,33.84,1882,,true,false,,2023-04-24,,120.2,64.8,24.7,cm,Acme Industrial,,27.38,9,false,,,,,,,,,,
+ZRTT-QRA,Poly Gloves L,Poly gloves l for general use.,supplies,L,34.74,,,true,false,bulk,2022-08-28,,100.1,47,48.1,cm,Northwind Supply,NO-45398,28.69,34,false,,,,,,,,,,
+VMFZ-G27,Fiberglass Tube 1in,"Fiberglass tube 1in, general purpose",raw-materials,KG,109.24,391,136,true,true,,2020-05-04,,83.7,68.5,16.9,cm,Northwind Supply,NO-28840,92.81,19,false,,,,,,,,,,
+DUNT-YSW,Aluminum Tool Cart,,finished-goods,EA,373.89,1994,,true,false,bulk,2020-10-24,,45.6,22,36.9,cm,Bluefin Packaging,,285.83,50,false,Ridgeline Metals,,230.42,20,true,,,,,
+AKWD-T9W,Oak Tool Cart,Oak tool cart for general use.,finished-goods,EA,528.32,1721,118,true,false,rohs,2022-08-01,,,,,,,,,,,,,,,,,,,,
+CXKF-PW4,Aluminum Bracket,,components,EA,2.44,2778,473,true,true,oversize;imported,2022-07-09,,88,15.7,57.6,cm,Copperline Supply,CO-80656,1.59,26,true,Northwind Supply,NO-65442,1.78,39,false,,,,,
+DEGA-584,Fiberglass Gloves L,Fiberglass gloves l for general use.,supplies,BX,7.4,,,true,false,bulk,2020-05-21,,16.2,57.4,59.3,cm,Summit Polymers,SU-18137,4.68,,false,Ridgeline Metals,RI-19811,5.88,7,true,,,,,
+DVUM-W8G,Fiberglass Degreaser,Fiberglass degreaser for general use.,supplies,EA,41.74,4535,,true,false,kitted,2024-11-15,,102.8,72.9,34.1,cm,Acme Industrial,AC-85411,33.47,9,true,,,,,,,,,,
