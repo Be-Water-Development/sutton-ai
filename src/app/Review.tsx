@@ -431,7 +431,7 @@ export default function Review(props: {
             <table className="w-full text-sm">
               <thead className="sticky top-0 bg-slate-50 text-left text-xs text-slate-500">
                 <tr>
-                  <th className="px-3 py-2">Row</th><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">UoM</th><th className="px-3 py-2 text-right">Unit cost</th><th className="px-3 py-2 text-right">On hand</th><th className="px-3 py-2"></th>
+                  <th className="px-3 py-2">Row</th><th className="px-3 py-2">SKU</th><th className="px-3 py-2">Name</th><th className="px-3 py-2">Category</th><th className="px-3 py-2">UoM</th><th className="px-3 py-2 text-right">Unit cost</th><th className="px-3 py-2 text-right">Qty on hand</th><th className="px-3 py-2">Changes</th>
                 </tr>
               </thead>
               <tbody>
@@ -445,7 +445,7 @@ export default function Review(props: {
                     <td className="px-3 py-1.5 text-right tabular-nums">${Number(r.row.unit_cost).toFixed(2)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{r.row.quantity_on_hand || 0}</td>
                     <td className="px-3 py-1.5 text-xs">
-                      {Object.keys(r.edited).length > 0 ? <span className="text-sky-700">fixed by you</span> : activeFixes(r) > 0 ? <span className="text-amber-700">cleaned up</span> : ""}
+                      {Object.keys(r.edited).length > 0 ? <span className="text-sky-700">fixed by you</span> : activeFixes(r) > 0 ? <span className="text-emerald-700">cleaned up</span> : ""}
                     </td>
                   </tr>
                 ))}
