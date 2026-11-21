@@ -7,7 +7,16 @@ import type { ImportResult, WorkRow } from "./types";
 
 type Step = "upload" | "map" | "review" | "done";
 
-export default function Home() {
+// Client-only render: browser extensions (e.g. ColorZilla) inject nodes into <body> before
+// React hydrates, which causes hydration mismatches. This is a local tool with no SEO needs,
+// so we skip SSR for the app shell entirely.
+export default function Page() {
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => setMounted(true), []);
+  return mounted ? <Home /> : null;
+}
+
+function Home() {
   const [step, setStep] = useState<Step>("upload");
   const [fileName, setFileName] = useState("");
   const [headers, setHeaders] = useState<string[]>([]);
