@@ -363,9 +363,15 @@ export default function Review(props: {
                             </td>
                           </>
                         ) : (
-                          <td colSpan={3} className="px-2 py-2 text-xs text-slate-400">
-                            {aiBusy && !p.solved ? <span className="inline-block h-4 w-40 animate-pulse rounded bg-slate-200" /> : p.solved ? "" : "—"}
-                          </td>
+                          <>
+                            <td className="px-2 py-2 text-xs text-slate-500">
+                              {p.solved ? "" : aiBusy ? <span className="inline-block h-6 w-32 animate-pulse rounded bg-slate-200" /> : "AI needs your help"}
+                            </td>
+                            <td className="px-2 py-2">
+                              {!p.solved && aiBusy && <span className="inline-block h-4 w-44 animate-pulse rounded bg-slate-200" />}
+                            </td>
+                            <td />
+                          </>
                         ))}
                       <td className="whitespace-nowrap px-4 py-2 text-right text-xs">
                         <button onClick={() => setFullRow(p.id)} className="rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-100">
