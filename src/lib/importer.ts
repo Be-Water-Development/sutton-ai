@@ -125,19 +125,20 @@ export function fixValue(key: string, v: string): [string, string] | null {
   }
   if (isMoneyField(key)) {
     let s = t.replace(/^\$|\s*usd$/i, "").replace(/^\$/, "").trim();
-    if (/^\d{1,3}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
+    if (/^[1-9]\d{0,2}(,\d{3})+(\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
     else if (/^\d+,\d{1,2}$/.test(s)) s = s.replace(",", "."); // decimal comma, e.g. 20,34
     if (s !== t && /^\d+(\.\d+)?$/.test(s)) return [s, t.includes(",") && !t.includes(".") && s.includes(".") ? "Decimal comma → decimal point" : "Removed currency formatting"];
   }
   if (isIntField(key)) {
     let s = t;
-    if (/^\d{1,3}(,\d{3})+$/.test(s)) s = s.replace(/,/g, "");
+    if (/^[1-9]\d{0,2}(,\d{3})+$/.test(s)) s = s.replace(/,/g, "");
     else if (/^\d+\.0+$/.test(s)) s = s.replace(/\.0+$/, "");
     if (s !== t) return [s, "Removed number formatting"];
   }
   if (isDateField(key)) {
     let m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2})$/); // Excel short date: M/D/YY
-    if (m && validDate(2000 + +m[3], +m[1], +m[2])) return [`${2000 + +m[3]}-${pad(+m[1])}-${pad(+m[2])}`, "Converted US short date (M/D/YY)"];
+    const yy = m ? (+m[3] > 50 ? 1900 : 2000) + +m[3] : 0;
+    if (m && validDate(yy, +m[1], +m[2])) return [`${yy}-${pad(+m[1])}-${pad(+m[2])}`, "Converted US short date (M/D/YY) — please double-check the year"];
     m = t.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})$/); // US spreadsheet export: MM/DD/YYYY
     if (m && validDate(+m[3], +m[1], +m[2])) return [`${m[3]}-${pad(+m[1])}-${pad(+m[2])}`, "Converted US date (MM/DD/YYYY)"];
     m = t.match(/^(\d{4})[/.](\d{1,2})[/.](\d{1,2})$/);

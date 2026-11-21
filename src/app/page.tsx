@@ -100,7 +100,7 @@ function Home() {
           c.w = `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
         }
       }
-      loadText(XLSX.utils.sheet_to_csv(sheet, { blankrows: false }), f.name);
+      loadText(XLSX.utils.sheet_to_csv(sheet, { blankrows: false, rawNumbers: true }), f.name);
       return;
     }
     if (!/\.(csv|txt|tsv)$/i.test(f.name)) {
@@ -137,7 +137,13 @@ function Home() {
           src[h] = "ai";
         }
       }
-      setMapping(next);
+      // Merge into the latest mapping: never overwrite a column the user set while AI was thinking.
+      setMapping((latest) => {
+        const merged = { ...latest };
+        const used = new Set(Object.values(latest).filter(Boolean));
+        for (const h of Object.keys(src)) if (!latest[h] && next[h] && !used.has(next[h])) { merged[h] = next[h]; used.add(next[h]!); }
+        return merged;
+      });
       setMappingSource((s) => ({ ...s, ...src }));
       setAiReasons((r) => ({ ...r, ...reasons }));
     } catch (e) {
@@ -147,7 +153,15 @@ function Home() {
     }
   }
 
+  const [rowsMappingKey, setRowsMappingKey] = useState("");
   function goReview() {
+    // Same mapping as last time → keep the admin's edits/exclusions instead of rebuilding from the file.
+    const key = JSON.stringify(mapping);
+    if (rows.length && key === rowsMappingKey) {
+      setStep("review");
+      return;
+    }
+    setRowsMappingKey(key);
     const mapped = applyMapping(records, mapping);
     setRows(
       mapped.map((orig, i) => {
@@ -166,11 +180,12 @@ function Home() {
       const res = await fetch("/api/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: included.map((r) => r.row), rowNumbers: included.map((r) => r.id), fileName, mode: updateExisting ? "upsert" : "insert" }),
+        body: JSON.stringify({ rows: included.map((r) => r.row), rowNumbers: included.map((r) => r.id), fileName, mode: updateExisting ? "upsert" : "insert", fields: Object.values(mapping).filter(Boolean) }),
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error ?? "Import failed");
       setResult({ ...data, excluded: rows.filter((r) => r.excluded) });
+      setUpdateExisting(false);
       await refresh();
       setStep("done");
     } catch (e) {

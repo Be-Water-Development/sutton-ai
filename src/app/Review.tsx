@@ -27,6 +27,7 @@ export default function Review(props: {
   const [bulk, setBulk] = useState<{ field: string; from: string; to: string; ids: number[] } | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
+  const [asked, setAsked] = useState<Set<number>>(new Set());
   const [aiError, setAiError] = useState<string | null>(null);
   const [showAllCols, setShowAllCols] = useState(false);
 
@@ -106,7 +107,7 @@ export default function Review(props: {
     setSuggestions((s) => s.filter((x) => !(x.id === id && x.field === field)));
     // Offer to apply the same fix to other rows with the same bad value.
     const idx = rows.findIndex((r) => r.id === id);
-    if (errors[idx].some((e) => e.field === field) && old !== "") {
+    if (field !== "sku" && errors[idx].some((e) => e.field === field) && old !== "") {
       const ids = rows.filter((r, i) => r.id !== id && !r.excluded && (r.row[field] ?? "") === old && errors[i].some((e) => e.field === field)).map((r) => r.id);
       if (ids.length) setBulk({ field, from: old, to: value, ids });
     }
@@ -179,7 +180,10 @@ export default function Review(props: {
     try {
       const bad = rows
         .map((r, i) => ({ id: r.id, row: r.row, errors: errOf(i) }))
-        .filter((x) => x.errors.length && !suggestions.some((s) => s.id === x.id));
+        .filter((x) => x.errors.length && !asked.has(x.id) && !suggestions.some((s) => s.id === x.id))
+        .slice(0, 40);
+      if (!bad.length) throw new Error("AI has already looked at every remaining row. Edit them directly or exclude them.");
+      setAsked((a) => new Set([...a, ...bad.map((b) => b.id)]));
       const res = await fetch("/api/ai/fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows: bad }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error);
@@ -221,9 +225,9 @@ export default function Review(props: {
     <div className="flex flex-col gap-4 pb-28">
       {/* Summary */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Stat label="Ready to import" value={counts.ready} tone="green" active={filter === "ready" && !issueFilter} onClick={() => { setIssueFilter(null); setFilter("ready"); }} />
+        <Stat label={`Ready to import (of ${rows.length})`} value={counts.ready} tone="green" active={filter === "ready" && !issueFilter} onClick={() => { setIssueFilter(null); setFilter("ready"); }} />
         <Stat label="Need attention" value={counts.issues} tone={counts.issues ? "red" : "green"} active={filter === "issues" && !issueFilter} onClick={() => { setIssueFilter(null); setFilter("issues"); }} />
-        <Stat label="Auto-fixed / edited" value={rows.filter((r) => r.autoChanges.length || Object.keys(r.edited).length).length} tone="amber" active={filter === "fixed" && !issueFilter} onClick={() => { setIssueFilter(null); setFilter("fixed"); }} />
+        <Stat label="Cleaned up (auto-fixed or edited) — overlaps the others" value={rows.filter((r) => r.autoChanges.length || Object.keys(r.edited).length).length} tone="amber" active={filter === "fixed" && !issueFilter} onClick={() => { setIssueFilter(null); setFilter("fixed"); }} />
         <Stat label="Excluded" value={counts.excluded} tone="slate" active={filter === "excluded" && !issueFilter} onClick={() => { setIssueFilter(null); setFilter("excluded"); }} />
       </div>
 
@@ -349,6 +353,23 @@ export default function Review(props: {
                             {r.excluded ? "↺" : "✕"}
                           </button>
                         </div>
+                        {errs.length > 0 && (
+                          <div className="mt-0.5 flex max-w-[150px] flex-wrap gap-1">
+                            {[...new Set(errs.map((e) => e.field))].map((f) => (
+                              <button
+                                key={f}
+                                title={errs.filter((e) => e.field === f).map((e) => e.message).join("\n")}
+                                onClick={() => {
+                                  if (!columns.includes(f)) setShowAllCols(true);
+                                  setEditing({ id: r.id, field: f });
+                                }}
+                                className="rounded bg-rose-100 px-1 text-[10px] leading-4 text-rose-800 hover:bg-rose-200"
+                              >
+                                {FIELDS.find((x) => x.key === f)?.label ?? f}
+                              </button>
+                            ))}
+                          </div>
+                        )}
                       </td>
                       {columns.map((c) => {
                         const e = errs.filter((x) => x.field === c);
