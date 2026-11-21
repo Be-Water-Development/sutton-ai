@@ -5,7 +5,8 @@ import { FIELDS, applyMapping, autofixRow, guessMapping, rowsToCsv, type Item, t
 import Review from "./Review";
 import type { ImportResult, WorkRow } from "./types";
 
-type Step = "upload" | "map" | "review" | "done";
+type Step = "upload" | "map" | "clean" | "fix" | "confirm" | "done";
+const WORK_STEPS: Step[] = ["map", "clean", "fix", "confirm"];
 
 // Client-only render: browser extensions (e.g. ColorZilla) inject nodes into <body> before
 // React hydrates, which causes hydration mismatches. This is a local tool with no SEO needs,
@@ -40,7 +41,7 @@ function Home() {
   useEffect(() => {
     try {
       const saved = JSON.parse(localStorage.getItem("import-wip") ?? "null");
-      if (saved && (saved.step === "map" || saved.step === "review")) {
+      if (saved && WORK_STEPS.includes(saved.step)) {
         setFileName(saved.fileName); setHeaders(saved.headers); setRecords(saved.records); setMapping(saved.mapping);
         setMappingSource(saved.mappingSource ?? {}); setRows(saved.rows ?? []); setStep(saved.step); setRestored(true);
       }
@@ -48,7 +49,7 @@ function Home() {
   }, []);
   useEffect(() => {
     try {
-      if (step === "map" || step === "review") localStorage.setItem("import-wip", JSON.stringify({ step, fileName, headers, records, mapping, mappingSource, rows }));
+      if (WORK_STEPS.includes(step)) localStorage.setItem("import-wip", JSON.stringify({ step, fileName, headers, records, mapping, mappingSource, rows }));
       else localStorage.removeItem("import-wip");
     } catch {}
   }, [step, fileName, headers, records, mapping, mappingSource, rows]);
@@ -158,7 +159,7 @@ function Home() {
     // Same mapping as last time → keep the admin's edits/exclusions instead of rebuilding from the file.
     const key = JSON.stringify(mapping);
     if (rows.length && key === rowsMappingKey) {
-      setStep("review");
+      setStep("clean");
       return;
     }
     setRowsMappingKey(key);
@@ -169,7 +170,7 @@ function Home() {
         return { id: i + 1, row, original: orig, autoChanges: changes, edited: {}, excluded: false };
       }),
     );
-    setStep("review");
+    setStep("clean");
   }
 
   async function doImport() {
@@ -233,7 +234,7 @@ function Home() {
       </header>
 
       <main className="mx-auto max-w-[1400px] px-6 py-6">
-        {restored && (step === "map" || step === "review") && (
+        {restored && WORK_STEPS.includes(step) && (
           <div className="mb-4 flex items-center justify-between rounded-lg border border-sky-200 bg-sky-50 px-4 py-2 text-sm text-sky-900">
             <span>Picked up where you left off with <b>{fileName}</b>, including your edits.</span>
             <span className="flex gap-3">
@@ -386,8 +387,10 @@ function Home() {
           </div>
         )}
 
-        {step === "review" && (
+        {(step === "clean" || step === "fix" || step === "confirm") && (
           <Review
+            phase={step}
+            setPhase={setStep}
             rows={rows}
             setRows={(fn) => setRows(fn)}
             existing={existing}
@@ -405,7 +408,7 @@ function Home() {
         {step === "done" && result && <Done result={result} rows={rows} onAgain={reset} onFixRejects={(rs) => {
           // Put the rejected rows back into review so they can be fixed without leaving the app.
           setRows(rs);
-          setStep("review");
+          setStep("fix");
         }} />}
       </main>
     </div>
@@ -413,7 +416,7 @@ function Home() {
 }
 
 function Stepper({ step }: { step: Step }) {
-  const steps: [Step, string][] = [["upload", "Upload"], ["map", "Match columns"], ["review", "Review & fix"], ["done", "Done"]];
+  const steps: [Step, string][] = [["upload", "Upload"], ["map", "Match columns"], ["clean", "Cleaned up"], ["fix", "Fix issues"], ["confirm", "Confirm"], ["done", "Done"]];
   const at = steps.findIndex(([s]) => s === step);
   return (
     <ol className="hidden items-center gap-2 text-xs md:flex">
