@@ -273,8 +273,9 @@ function Home() {
                                 </optgroup>
                               ))}
                             </select>
-                            {src === "auto" && mapping[h] && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-800">matched</span>}
-                            {src === "ai" && mapping[h] && <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] text-indigo-800" title={aiReasons[h]}>✨ AI</span>}
+                            {src === "auto" && mapping[h] && <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[11px] text-emerald-800" title="Matched by column name — no AI">name match</span>}
+                            {src === "ai" && mapping[h] && <span className="rounded bg-indigo-100 px-1.5 py-0.5 text-[11px] text-indigo-800" title={`Suggested by AI: ${aiReasons[h] ?? ""}`}>✨ AI: {aiReasons[h]}</span>}
+                            {src === "you" && mapping[h] && <span className="rounded bg-sky-100 px-1.5 py-0.5 text-[11px] text-sky-800">set by you</span>}
                             {!mapping[h] && aiReasons[h] && <span className="text-[11px] text-slate-400" title={aiReasons[h]}>✨ {aiReasons[h]}</span>}
                           </div>
                         </td>
