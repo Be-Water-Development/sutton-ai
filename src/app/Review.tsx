@@ -29,7 +29,7 @@ export default function Review(props: {
   const [bulk, setBulk] = useState<{ field: string; from: string; to: string; ids: number[] } | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [aiBusy, setAiBusy] = useState(false);
-  const [asked, setAsked] = useState<Set<number>>(new Set());
+  const [aiRan, setAiRan] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [fullRow, setFullRow] = useState<number | null>(null);
 
@@ -74,7 +74,6 @@ export default function Review(props: {
     .filter((p): p is NonNullable<typeof p> => !!p)
     .sort((a, b) => a.id - b.id || FIELDS.findIndex((f) => f.key === a.field) - FIELDS.findIndex((f) => f.key === b.field));
   const solvedCount = problems.filter((p) => p.solved).length;
-  const aiRan = asked.size > 0;
 
   function nextProblem(id: number, field: string) {
     const open = problems.filter((p) => !p.solved && !(p.id === id && p.field === field));
@@ -136,18 +135,20 @@ export default function Review(props: {
     setAiBusy(true);
     setAiError(null);
     try {
-      const bad = rows
-        .map((r, i) => ({ id: r.id, row: r.row, errors: errOf(i) }))
-        .filter((x) => x.errors.length && !asked.has(x.id) && !suggestions.some((s) => s.id === x.id))
-        .slice(0, 40);
-      if (!bad.length) throw new Error("AI has already looked at every remaining row. Edit them directly or exclude them.");
-      setAsked((a) => new Set([...a, ...bad.map((b) => b.id)]));
-      const res = await fetch("/api/ai/fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows: bad }) });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error);
-      const valid = (data.suggestions as Suggestion[]).filter((s) => rows.some((r) => r.id === s.id) && (rows.find((r) => r.id === s.id)!.row[s.field] ?? "") !== s.value);
-      setSuggestions((s) => [...s, ...valid]);
-      if (!valid.length) setAiError("AI didn't find any fixes it was confident about — the remaining issues need your input.");
+      // Every click sends all unsolved rows (in batches of 40, in parallel) and replaces previous suggestions.
+      const bad = rows.map((r, i) => ({ id: r.id, row: r.row, errors: errOf(i) })).filter((x) => x.errors.length);
+      const batches = Array.from({ length: Math.ceil(bad.length / 40) }, (_, k) => bad.slice(k * 40, k * 40 + 40));
+      const results = await Promise.all(
+        batches.map(async (b) => {
+          const res = await fetch("/api/ai/fix", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ rows: b }) });
+          const data = await res.json();
+          if (!res.ok) throw new Error(data.error);
+          return data.suggestions as Suggestion[];
+        }),
+      );
+      const valid = results.flat().filter((s) => rows.some((r) => r.id === s.id) && (rows.find((r) => r.id === s.id)!.row[s.field] ?? "") !== s.value);
+      setSuggestions(valid);
+      setAiRan(true);
     } catch (e) {
       setAiError(String(e instanceof Error ? e.message : e));
     } finally {
@@ -351,7 +352,6 @@ export default function Review(props: {
                           </>
                         ) : (
                           <td colSpan={3} className="bg-indigo-50/30 px-2 py-2 text-xs text-slate-400">
-                            {p.solved ? "" : asked.has(p.id) ? "No suggestion — needs your input" : "Not checked yet"}
                           </td>
                         ))}
                       <td className="whitespace-nowrap px-4 py-2 text-right text-xs">
