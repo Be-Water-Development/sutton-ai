@@ -108,8 +108,8 @@ function Home() {
     loadText(await f.text(), f.name);
   }
 
-  async function aiMap(hs = headers, recs = records, current = mapping) {
-    const unmapped = hs.filter((h) => !current[h]);
+  async function aiMap(hs = headers, recs = records, current = mapping, only?: string[]) {
+    const unmapped = only ?? hs.filter((h) => !current[h]);
     if (!unmapped.length) return;
     setAiMapBusy(true);
     try {
@@ -185,6 +185,8 @@ function Home() {
     setError(null);
   }
 
+  // Unmatched columns the AI hasn't weighed in on yet (it runs automatically on upload).
+  const unseen = headers.filter((h) => !mapping[h] && !aiReasons[h]);
   const missingRequired = FIELDS.filter((f) => f.required && !Object.values(mapping).includes(f.key));
 
   return (
@@ -332,9 +334,14 @@ function Home() {
             </div>
             <div className="mt-4 flex items-center gap-3">
               <button onClick={reset} className="text-sm text-slate-600 hover:text-slate-900">← Choose another file</button>
-              {config.aiEnabled && headers.some((h) => !mapping[h]) && (
-                <button disabled={aiMapBusy} onClick={() => aiMap()} className="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50">
-                  ✨ Ask AI about unmatched columns
+              {config.aiEnabled && unseen.length > 0 && (
+                <button
+                  disabled={aiMapBusy}
+                  onClick={() => aiMap(headers, records, mapping, unseen)}
+                  title={`AI will look at: ${unseen.join(", ")}`}
+                  className="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm text-indigo-700 hover:bg-indigo-50 disabled:opacity-50"
+                >
+                  ✨ Ask AI to match {unseen.length} unmatched column{unseen.length === 1 ? "" : "s"}
                 </button>
               )}
               <button onClick={goReview} className="ml-auto rounded-lg bg-slate-900 px-5 py-2.5 font-semibold text-white hover:bg-slate-700">
