@@ -31,8 +31,7 @@ export default function Review(props: {
   const [aiBusy, setAiBusy] = useState(false);
   const [asked, setAsked] = useState<Set<number>>(new Set());
   const [aiError, setAiError] = useState<string | null>(null);
-  const [showAllCols, setShowAllCols] = useState(false);
-  const [hideSolved, setHideSolved] = useState(false);
+  const [fullRow, setFullRow] = useState<number | null>(null);
 
   const skip = useMemo(() => new Set(rows.map((r, i) => (r.excluded ? i : -1)).filter((i) => i >= 0)), [rows]);
   const errors = useMemo(
@@ -53,62 +52,35 @@ export default function Review(props: {
 
   const cleaned = rows.filter((r) => r.autoChanges.length > 0);
 
-  // The rows the admin is working through in step 2. Snapshot on entry so fixed rows stay in place
-  // (marked solved) instead of jumping out from under the cursor.
-  const [fixIds, setFixIds] = useState<number[]>([]);
+  // Step 2 works through one line per problem cell. Snapshot on entry so solved problems stay in
+  // place (marked solved) instead of jumping out from under the cursor.
+  const [fixKeys, setFixKeys] = useState<string[]>([]);
+  const currentKeys = () => rows.flatMap((r, i) => (r.excluded ? [] : [...new Set(errors[i].map((e) => `${r.id}|${e.field}`))]));
   useEffect(() => {
-    if (phase === "fix") setFixIds(rows.filter((r, i) => !r.excluded && errors[i].length).map((r) => r.id));
+    if (phase === "fix") setFixKeys(currentKeys());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [phase]);
-
-  const fixSet = new Set(fixIds);
-  const visible = rows
-    .map((r, i) => ({ r, i }))
-    .filter(({ r, i }) => {
-      const open = !r.excluded && errors[i].length > 0;
-      if (!fixSet.has(r.id) && !open) return false;
-      if (hideSolved && !open) return false;
-      return true;
-    });
-  const solved = fixIds.filter((id) => {
-    const i = rows.findIndex((r) => r.id === id);
-    return i >= 0 && (rows[i].excluded || errors[i].length === 0);
-  }).length;
-
-  // Issue groups only power the one-click bulk fixes in step 2.
-  const issueGroups = useMemo(() => {
-    const g = new Map<string, { field: string; label: string; ids: number[] }>();
-    rows.forEach((r, i) => {
-      if (r.excluded) return;
-      for (const e of errors[i]) {
-        const l = e.message.replace(/“[^”]*”/g, "…").replace(/SKU [A-Z0-9-]+ /, "SKU ").replace(/\(rows [^)]*\)/, "").replace(/appears \d+ times/, "is duplicated");
-        const key = `${e.field}|${l}`;
-        const cur = g.get(key) ?? { field: e.field, label: l, ids: [] };
-        if (!cur.ids.includes(r.id)) cur.ids.push(r.id);
-        g.set(key, cur);
-      }
-    });
-    return [...g.values()];
-  }, [rows, errors]);
-
-  const core = ["sku", "name", "category", "uom", "unit_cost", "quantity_on_hand"];
-  const columns = FIELDS.map((f) => f.key).filter((k) => {
-    if (!props.mappedFields.includes(k) && !core.includes(k)) return false;
-    if (showAllCols || core.includes(k)) return true;
-    return visible.some(({ r, i }) => errOf(i).some((e) => e.field === k) || k in r.edited || fixSet.has(r.id) && errors[i].some((e) => e.field === k));
-  });
+  const rowIndex = new Map(rows.map((r, i) => [r.id, i]));
+  const problems = [...new Set([...fixKeys, ...currentKeys()])]
+    .map((k) => {
+      const [idStr, field] = k.split("|");
+      const id = Number(idStr);
+      const i = rowIndex.get(id);
+      if (i === undefined) return null;
+      const r = rows[i];
+      const msgs = r.excluded ? [] : errors[i].filter((e) => e.field === field).map((e) => e.message);
+      return { key: k, id, i, r, field, msgs, solved: r.excluded || msgs.length === 0 };
+    })
+    .filter((p): p is NonNullable<typeof p> => !!p)
+    .sort((a, b) => a.id - b.id || FIELDS.findIndex((f) => f.key === a.field) - FIELDS.findIndex((f) => f.key === b.field));
+  const solvedCount = problems.filter((p) => p.solved).length;
 
   function nextProblem(id: number, field: string) {
-    const cells: { id: number; field: string }[] = [];
-    for (const { r, i } of visible) for (const c of columns) if (errOf(i).some((e) => e.field === c) && !(r.id === id && c === field)) cells.push({ id: r.id, field: c });
-    if (!cells.length) return null;
-    const pos = visible.findIndex(({ r }) => r.id === id);
-    const colPos = columns.indexOf(field);
-    const after = cells.find((c) => {
-      const p = visible.findIndex(({ r }) => r.id === c.id);
-      return p > pos || (p === pos && columns.indexOf(c.field) > colPos);
-    });
-    return after ?? cells[0];
+    const open = problems.filter((p) => !p.solved && !(p.id === id && p.field === field));
+    if (!open.length) return null;
+    const pos = problems.findIndex((p) => p.id === id && p.field === field);
+    const after = open.find((p) => problems.indexOf(p) > pos) ?? open[0];
+    return { id: after.id, field: after.field };
   }
 
   function commitEdit(id: number, field: string, value: string, advance = false) {
@@ -130,44 +102,6 @@ export default function Review(props: {
     setRows((rs) => rs.map((r) => (bulk.ids.includes(r.id) ? { ...r, row: { ...r.row, [bulk.field]: bulk.to }, edited: { [bulk.field]: r.row[bulk.field] ?? "", ...r.edited } } : r)));
     setBulk(null);
   }
-
-  function setField(ids: number[], field: string, value: (r: WorkRow) => string) {
-    setRows((rs) => rs.map((r) => (ids.includes(r.id) ? { ...r, row: { ...r.row, [field]: value(r) }, edited: { [field]: r.row[field] ?? "", ...r.edited } } : r)));
-  }
-
-  // One-click fixes for problems that show up in several rows. The admin decides; we do the typing.
-  const quickFixes = useMemo(() => {
-    const out: { label: string; run: () => void }[] = [];
-    for (const g of issueGroups) {
-      if (g.label.includes("Discontinued items must have Active = false"))
-        out.push({ label: `Mark ${g.ids.length} discontinued item${g.ids.length > 1 ? "s" : ""} inactive`, run: () => setField(g.ids, "is_active", () => "false") });
-      if (g.label.includes("is duplicated in this file")) {
-        const seen = new Set<string>();
-        const later: number[] = [];
-        for (const r of rows) if (g.ids.includes(r.id)) { if (seen.has(r.row.sku)) later.push(r.id); else seen.add(r.row.sku); }
-        if (later.length) out.push({ label: `Duplicate SKUs: keep first, exclude ${later.length} later cop${later.length > 1 ? "ies" : "y"}`, run: () => setRows((rs) => rs.map((r) => (later.includes(r.id) ? { ...r, excluded: true } : r))) });
-      }
-      if (g.label.includes("Only one vendor can be preferred") && g.field === "vendor_1_preferred")
-        out.push({
-          label: `Multiple preferred vendors: keep the cheapest (${g.ids.length})`,
-          run: () =>
-            setRows((rs) =>
-              rs.map((r) => {
-                if (!g.ids.includes(r.id)) return r;
-                const pref = [1, 2, 3].filter((n) => r.row[`vendor_${n}_preferred`] === "true");
-                if (pref.length < 2) return r;
-                const best = pref.reduce((a, b) => (Number(r.row[`vendor_${b}_unit_cost`]) < Number(r.row[`vendor_${a}_unit_cost`]) ? b : a));
-                const row = { ...r.row };
-                const edited = { ...r.edited };
-                for (const n of pref) if (n !== best) { const k = `vendor_${n}_preferred`; if (!(k in edited)) edited[k] = row[k]; row[k] = "false"; }
-                return { ...r, row, edited };
-              }),
-            ),
-        });
-    }
-    return out;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [issueGroups, rows]);
 
   const toggleExclude = (id: number) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, excluded: !r.excluded } : r)));
 
@@ -314,14 +248,14 @@ export default function Review(props: {
 
       {/* ---------- Step 2: fix what's left ---------- */}
       {phase === "fix" && (
-        <section className="min-w-0 rounded-xl border border-slate-200 bg-white">
+        <section className="rounded-xl border border-slate-200 bg-white">
           <div className="flex flex-wrap items-start gap-3 border-b border-slate-200 p-4">
             <div>
               <h2 className="text-lg font-semibold">
-                Step 2 · Fix {fixIds.length} row{fixIds.length === 1 ? "" : "s"} that need attention
+                Step 2 · Fix {problems.length} problem{problems.length === 1 ? "" : "s"}
               </h2>
               <p className="text-sm text-slate-600">
-                Click a red cell to fix it — <kbd className="rounded border px-1 text-xs">Enter</kbd> saves and jumps to the next problem. Or exclude a row with ✕. Anything left unfixed is skipped and handed back to you as a CSV.
+                Click a value to fix it — <kbd className="rounded border px-1 text-xs">Enter</kbd> saves and moves to the next one. Anything left unfixed is skipped and handed back to you as a CSV.
               </p>
             </div>
             <div className="ml-auto flex items-center gap-2">
@@ -331,7 +265,7 @@ export default function Review(props: {
                 title={aiEnabled ? "AI proposes fixes (e.g. category from the item name). Nothing changes until you accept." : "Set OPENROUTER_API_KEY to enable"}
                 className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700 disabled:opacity-40"
               >
-                {aiBusy ? "✨ Thinking…" : `✨ Suggest fixes`}
+                {aiBusy ? "✨ Thinking…" : "✨ Suggest fixes"}
               </button>
               {suggestions.length > 0 && (
                 <button onClick={acceptAllSuggestions} className="rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50">
@@ -341,130 +275,73 @@ export default function Review(props: {
             </div>
           </div>
           {aiError && <p className="border-b border-slate-100 px-4 py-2 text-xs text-rose-700">{aiError}</p>}
-          {quickFixes.length > 0 && (
-            <div className="flex flex-wrap items-center gap-2 border-b border-slate-100 bg-slate-50 px-4 py-2">
-              <span className="text-xs font-medium text-slate-500">Quick fixes:</span>
-              {quickFixes.map((q) => (
-                <button key={q.label} onClick={q.run} className="rounded-full border border-slate-300 bg-white px-3 py-1 text-xs text-slate-800 hover:border-slate-900">
-                  {q.label}
-                </button>
-              ))}
-            </div>
-          )}
-          <div className="flex items-center gap-4 px-4 py-2 text-xs text-slate-600">
-            <span>
-              <b className="text-emerald-700">{solved}</b> of {fixIds.length} solved
-            </span>
-            <label className="flex items-center gap-1">
-              <input type="checkbox" checked={hideSolved} onChange={(e) => setHideSolved(e.target.checked)} /> Hide solved
-            </label>
-            <label className="ml-auto flex items-center gap-1">
-              <input type="checkbox" checked={showAllCols} onChange={(e) => setShowAllCols(e.target.checked)} /> All columns
-            </label>
+          <div className="px-4 py-2 text-xs text-slate-600">
+            <b className="text-emerald-700">{solvedCount}</b> of {problems.length} solved
           </div>
           <div className="max-h-[58vh] overflow-auto">
-            <table className="w-full border-separate border-spacing-0 text-sm">
-              <thead className="sticky top-0 z-20 bg-slate-50 text-left text-xs text-slate-500">
+            <table className="w-full text-sm">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs text-slate-500">
                 <tr>
-                  <th className="sticky left-0 z-30 border-b border-slate-200 bg-slate-50 px-2 py-2">Row</th>
-                  {columns.map((c) => (
-                    <th key={c} className="whitespace-nowrap border-b border-slate-200 px-2 py-2 font-medium">
-                      {label(c)}
-                      {FIELDS.find((f) => f.key === c)?.required && <span className="text-rose-500">*</span>}
-                    </th>
-                  ))}
+                  <th className="w-16 px-4 py-2">Row</th>
+                  <th className="w-40 px-2 py-2">Field</th>
+                  <th className="w-72 px-2 py-2">Value</th>
+                  <th className="px-2 py-2">Problem</th>
+                  <th className="w-48 px-4 py-2"></th>
                 </tr>
               </thead>
               <tbody>
-                {visible.length === 0 && (
+                {problems.length === 0 && (
                   <tr>
-                    <td colSpan={columns.length + 1} className="p-10 text-center text-emerald-700">
-                      🎉 Nothing left to fix.
-                    </td>
+                    <td colSpan={5} className="p-10 text-center text-emerald-700">🎉 Nothing left to fix.</td>
                   </tr>
                 )}
-                {visible.map(({ r, i }) => {
-                  const errs = errOf(i);
-                  const isSolved = !r.excluded && errs.length === 0;
-                  const rowSugs = suggestions.filter((s) => s.id === r.id);
+                {problems.map((p) => {
+                  const val = p.r.row[p.field] ?? "";
+                  const isEditing = editing?.id === p.id && editing.field === p.field;
+                  const sug = suggestions.find((s) => s.id === p.id && s.field === p.field);
                   return (
-                    <tr key={r.id} className={`transition-colors ${r.excluded ? "opacity-40" : isSolved ? "bg-emerald-50/60" : ""}`}>
-                      <td className={`sticky left-0 z-10 border-b border-slate-100 px-2 py-1 align-top ${isSolved ? "bg-emerald-50" : "bg-white"}`}>
-                        <div className="flex items-center gap-1.5">
-                          <span className={`h-2.5 w-2.5 rounded-full ${r.excluded ? "bg-slate-300" : errs.length ? "bg-rose-500" : "bg-emerald-500"}`} />
-                          <span className="w-8 text-xs tabular-nums text-slate-500">{r.id}</span>
-                          <button onClick={() => toggleExclude(r.id)} className="rounded px-1 text-xs text-slate-400 hover:bg-slate-100 hover:text-slate-700" title={r.excluded ? "Include this row" : "Don't import this row"}>
-                            {r.excluded ? "↺" : "✕"}
+                    <tr key={p.key} className={`border-t border-slate-100 align-top ${p.solved ? "bg-emerald-50/60" : ""}`}>
+                      <td className="px-4 py-2 tabular-nums text-slate-500">{p.id}</td>
+                      <td className="px-2 py-2 text-slate-700">{label(p.field)}</td>
+                      <td className="px-2 py-1.5">
+                        {isEditing ? (
+                          <CellEditor field={p.field} value={val} onDone={(v, adv) => (v === null ? setEditing(null) : commitEdit(p.id, p.field, v, adv))} />
+                        ) : (
+                          <button
+                            disabled={p.r.excluded}
+                            onClick={() => setEditing({ id: p.id, field: p.field })}
+                            className={`block w-full truncate rounded border px-2 py-1 text-left ${p.solved ? "border-transparent" : "border-rose-300 bg-rose-50 hover:border-rose-500"}`}
+                          >
+                            {val === "" ? <span className="text-slate-400">(empty)</span> : val}
                           </button>
-                        </div>
-                        {isSolved && <div className="mt-0.5 text-[10px] font-semibold text-emerald-700">✓ Solved</div>}
-                        {r.excluded && <div className="mt-0.5 text-[10px] text-slate-500">Excluded</div>}
-                        {errs.length > 0 && (
-                          <div className="mt-0.5 flex max-w-[150px] flex-wrap gap-1">
-                            {[...new Set(errs.map((e) => e.field))].map((f) => (
-                              <button
-                                key={f}
-                                title={errs.filter((e) => e.field === f).map((e) => e.message).join("\n")}
-                                onClick={() => {
-                                  if (!columns.includes(f)) setShowAllCols(true);
-                                  setEditing({ id: r.id, field: f });
-                                }}
-                                className="rounded bg-rose-100 px-1 text-[10px] leading-4 text-rose-800 hover:bg-rose-200"
-                              >
-                                {label(f)}
-                              </button>
-                            ))}
+                        )}
+                        {sug && !p.solved && (
+                          <div className="mt-1 rounded-md border border-indigo-200 bg-indigo-50 p-1.5 text-xs text-indigo-900">
+                            ✨ <b>{sug.value}</b> <span className="text-indigo-600">({sug.confidence})</span> — {sug.reason}
+                            <div className="mt-0.5 flex gap-3">
+                              <button className="font-semibold text-indigo-700 hover:underline" onClick={() => commitEdit(sug.id, sug.field, sug.value)}>Accept</button>
+                              <button className="text-slate-500 hover:underline" onClick={() => setSuggestions((s) => s.filter((x) => x !== sug))}>Dismiss</button>
+                            </div>
                           </div>
                         )}
                       </td>
-                      {columns.map((c) => {
-                        const e = errs.filter((x) => x.field === c);
-                        const userEdited = c in r.edited;
-                        const sug = rowSugs.find((s) => s.field === c);
-                        const isEditing = editing?.id === r.id && editing.field === c;
-                        const val = r.row[c] ?? "";
-                        const tone = e.length ? "bg-rose-50 ring-1 ring-inset ring-rose-300" : userEdited ? "bg-sky-50" : "";
-                        return (
-                          <td key={c} className={`relative border-b border-slate-100 px-1 py-1 align-top ${tone}`}>
-                            {isEditing ? (
-                              <CellEditor field={c} value={val} onDone={(v, adv) => (v === null ? setEditing(null) : commitEdit(r.id, c, v, adv))} />
-                            ) : (
-                              <button
-                                onClick={() => !r.excluded && setEditing({ id: r.id, field: c })}
-                                className="block w-full min-w-[90px] max-w-[260px] truncate rounded px-1 py-0.5 text-left hover:bg-slate-100"
-                                title={[...e.map((x) => "⚠ " + x.message), userEdited ? `You changed this from “${r.edited[c]}”` : ""].filter(Boolean).join("\n") || val}
-                              >
-                                {val === "" ? <span className="text-slate-300">—</span> : val}
-                              </button>
-                            )}
-                            {e.length > 0 && !isEditing && <div className="px-1 text-[11px] leading-tight text-rose-700">{e[0].message}</div>}
-                            {userEdited && !e.length && !isEditing && (
-                              <div className="flex items-center gap-1 px-1 text-[11px] leading-tight text-slate-500">
-                                <span className="truncate">was “{r.edited[c] || "empty"}”</span>
-                                <button className="text-indigo-600 hover:underline" onClick={() => revertField(r.id, c)}>
-                                  undo
-                                </button>
-                              </div>
-                            )}
-                            {sug && (
-                              <div className="mt-1 rounded-md border border-indigo-200 bg-indigo-50 p-1 text-[11px] text-indigo-900">
-                                <div>
-                                  ✨ <b>{sug.value}</b> <span className="text-indigo-600">({sug.confidence})</span>
-                                </div>
-                                <div className="text-indigo-700">{sug.reason}</div>
-                                <div className="mt-0.5 flex gap-2">
-                                  <button className="font-semibold text-indigo-700 hover:underline" onClick={() => commitEdit(sug.id, sug.field, sug.value)}>
-                                    Accept
-                                  </button>
-                                  <button className="text-slate-500 hover:underline" onClick={() => setSuggestions((s) => s.filter((x) => x !== sug))}>
-                                    Dismiss
-                                  </button>
-                                </div>
-                              </div>
-                            )}
-                          </td>
-                        );
-                      })}
+                      <td className="px-2 py-2">
+                        {p.r.excluded ? (
+                          <span className="text-slate-500">Row excluded — won't be imported</span>
+                        ) : p.solved ? (
+                          <span className="font-medium text-emerald-700">✓ Solved{p.field in p.r.edited ? ` (was “${p.r.edited[p.field] || "empty"}”)` : ""}</span>
+                        ) : (
+                          <span className="text-rose-700">{p.msgs.join("; ")}</span>
+                        )}
+                      </td>
+                      <td className="whitespace-nowrap px-4 py-2 text-right text-xs">
+                        <button onClick={() => setFullRow(p.id)} className="rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-100">
+                          See full row
+                        </button>
+                        <button onClick={() => toggleExclude(p.id)} className="ml-2 text-slate-500 hover:text-slate-900 hover:underline">
+                          {p.r.excluded ? "Include row" : "Exclude row"}
+                        </button>
+                      </td>
                     </tr>
                   );
                 })}
@@ -472,6 +349,17 @@ export default function Review(props: {
             </table>
           </div>
         </section>
+      )}
+
+      {fullRow !== null && rowIndex.has(fullRow) && (
+        <FullRowModal
+          row={rows[rowIndex.get(fullRow)!]}
+          errors={errOf(rowIndex.get(fullRow)!)}
+          fields={FIELDS.map((f) => f.key).filter((k) => props.mappedFields.includes(k) || ["sku", "name", "category", "uom", "unit_cost"].includes(k))}
+          onChange={(field, v) => commitEdit(fullRow, field, v)}
+          onExclude={() => { toggleExclude(fullRow); setFullRow(null); }}
+          onClose={() => setFullRow(null)}
+        />
       )}
 
       {/* ---------- Step 3: confirm ---------- */}
@@ -574,7 +462,7 @@ export default function Review(props: {
           )}
           {phase === "confirm" && (
             <>
-              <button onClick={() => setPhase(fixIds.length || counts.issues ? "fix" : "clean")} className="text-sm text-slate-600 hover:text-slate-900">← Back</button>
+              <button onClick={() => setPhase(fixKeys.length || counts.issues ? "fix" : "clean")} className="text-sm text-slate-600 hover:text-slate-900">← Back</button>
               <span className="text-sm text-slate-700">
                 <b className="text-emerald-700">{counts.ready}</b> of {counts.all} rows will be imported.
                 {counts.issues > 0 && <> {counts.issues} skipped.</>}
@@ -593,6 +481,70 @@ export default function Review(props: {
       </div>
     </div>
   );
+}
+
+/** Whole row in context, every field editable, problems highlighted. */
+function FullRowModal(p: { row: WorkRow; errors: FieldError[]; fields: string[]; onChange: (field: string, v: string) => void; onExclude: () => void; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && p.onClose();
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [p]);
+  const groups = [...new Set(FIELDS.filter((f) => p.fields.includes(f.key)).map((f) => f.group))];
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-slate-900/40 p-4" onMouseDown={p.onClose}>
+      <div className="max-h-[90vh] w-full max-w-3xl overflow-auto rounded-2xl bg-white shadow-2xl" onMouseDown={(e) => e.stopPropagation()}>
+        <div className="sticky top-0 flex items-center gap-3 border-b border-slate-200 bg-white px-5 py-3">
+          <div>
+            <div className="text-xs text-slate-500">Row {p.row.id}</div>
+            <div className="font-semibold">{p.row.row.name || "(no name)"} <span className="font-mono text-sm text-slate-500">{p.row.row.sku}</span></div>
+          </div>
+          <span className={`ml-2 rounded-full px-2 py-0.5 text-xs ${p.errors.length ? "bg-rose-100 text-rose-800" : "bg-emerald-100 text-emerald-800"}`}>
+            {p.errors.length ? `${p.errors.length} problem${p.errors.length > 1 ? "s" : ""}` : "Ready to import"}
+          </span>
+          <button onClick={p.onClose} className="ml-auto rounded-md px-2 py-1 text-slate-500 hover:bg-slate-100">✕</button>
+        </div>
+        <div className="space-y-4 px-5 py-4">
+          {groups.map((g) => (
+            <div key={g}>
+              <h3 className="mb-1 text-xs font-semibold uppercase tracking-wide text-slate-400">{g}</h3>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {FIELDS.filter((f) => f.group === g && p.fields.includes(f.key)).map((f) => {
+                  const errs = p.errors.filter((e) => e.field === f.key);
+                  return (
+                    <label key={f.key} className="block text-sm">
+                      <span className="text-xs text-slate-500">{f.label}{f.required && <span className="text-rose-500">*</span>}</span>
+                      <FieldInput field={f.key} value={p.row.row[f.key] ?? ""} bad={errs.length > 0} onCommit={(v) => p.onChange(f.key, v)} />
+                      {errs.map((e) => <span key={e.message} className="block text-xs text-rose-700">{e.message}</span>)}
+                    </label>
+                  );
+                })}
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="sticky bottom-0 flex items-center gap-3 border-t border-slate-200 bg-white px-5 py-3">
+          <button onClick={p.onExclude} className="text-sm text-slate-600 hover:underline">{p.row.excluded ? "Include this row" : "Exclude this row"}</button>
+          <button onClick={p.onClose} className="ml-auto rounded-lg bg-slate-900 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700">Done</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function FieldInput({ field, value, bad, onCommit }: { field: string; value: string; bad: boolean; onCommit: (v: string) => void }) {
+  const [v, setV] = useState(value);
+  useEffect(() => setV(value), [value]);
+  const options = ENUMS[field] ?? (isBool(field) ? ["true", "false"] : null);
+  const cls = `mt-0.5 w-full rounded-md border px-2 py-1 text-sm ${bad ? "border-rose-400 bg-rose-50" : "border-slate-300"}`;
+  if (options)
+    return (
+      <select value={options.includes(v) ? v : ""} onChange={(e) => { setV(e.target.value); onCommit(e.target.value); }} className={cls}>
+        <option value="">{v && !options.includes(v) ? `(${v})` : "—"}</option>
+        {options.map((o) => <option key={o}>{o}</option>)}
+      </select>
+    );
+  return <input value={v} onChange={(e) => setV(e.target.value)} onBlur={() => v !== value && onCommit(v)} onKeyDown={(e) => e.key === "Enter" && (e.target as HTMLInputElement).blur()} className={cls} />;
 }
 
 /** Make leading/trailing spaces visible as faint dots so whitespace fixes are obvious. */
