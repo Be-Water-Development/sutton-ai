@@ -1,36 +1,48 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Inventory Bulk Import
 
-## Getting Started
+A local web app that lets a warehouse ops admin get a messy spreadsheet export into inventory — and trust exactly what got in and what didn't — without going back to the spreadsheet.
 
-First, run the development server:
+## Run it
+
+Requires Node 20+ (tested on Node 24).
 
 ```bash
+npm install
+echo "OPENROUTER_API_KEY=sk-or-..." > .env.local   # optional: enables the AI features
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 and click **items_messy.csv** under “Try a sample” (or drag in any CSV).
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+Tests: `npm test`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Optional: `OPENROUTER_MODEL` (default `openai/gpt-4.1-mini`). Without a key everything works except the ✨ AI buttons, which say how to enable them.
 
-## Learn More
+Imported items are stored in `data/inventory.json` (gitignored). Use the “reset” link in the header (upload screen) to clear it.
 
-To learn more about Next.js, take a look at the following resources:
+## The flow
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. **Upload** – drag & drop or pick a sample. Nothing is saved until you confirm.
+2. **Match columns** – headers are matched automatically (`"SKU "`, `Unit Cost ($)`, `Active?`, `Reorder Pt`…). Anything we can't match by name is sent to AI with sample values, which proposes a field (badged ✨ AI, with its reason on hover). Columns like `Internal Notes` default to “Don't import”. Missing required fields are called out.
+3. **Review & fix**
+   - Safe fixes are applied automatically and shown in amber with the original struck through + **undo**: SKU case/separators, `$15.39`, `1,200`, decimal comma `20,34`, `TRUE/yes/1`, `05/09/2024` / `Oct 24, 2024` → ISO, category/UoM synonyms (`Raw Material`, `bx`), tag case/dupes, whitespace.
+   - Anything that would be a guess (`TBD` cost, negative cost, `12.5` qty, `2024-13-01`, `Misc` category, missing SKU) is **not** auto-fixed — it's flagged in red with a plain-English reason.
+   - **Issues by type** sidebar groups problems (“SKU is duplicated in this file — 10 rows”); click to filter.
+   - Click any cell to edit (dropdowns for enums/booleans). Re-validation is instant, including SKU uniqueness across the file **and existing inventory**.
+   - Fix one bad value and it offers to **fix every row with the same value**.
+   - **✨ Suggest fixes** asks AI for proposals on the remaining rows (e.g. infer category from item name); each is shown inline with confidence and reason; accept one-by-one or all. AI never changes data silently and is told never to invent SKUs or prices.
+   - Exclude rows you don't want. A sticky footer always says exactly what will happen: “164 of 200 rows will be imported, 36 skipped”.
+4. **Done** – a receipt: how many imported (and how many were cleaned up), every row not imported with its reasons, and the imported items. **Fix the remaining rows here** puts the rejects straight back into review; or download them as a CSV with an `import_errors` column.
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Design decisions
 
-## Deploy on Vercel
+- **One validation module** (`src/lib/importer.ts`) runs in the browser for instant feedback and again on the server at commit, so what the UI promises is what the server enforces.
+- **Partial import**: valid rows go in, invalid rows come back with reasons. The admin isn't blocked by 3 bad rows out of 200.
+- **Deterministic first, AI second**: rules handle the unambiguous stuff (fast, free, explainable); AI only gets what's left, and only as suggestions.
+- `MM/DD/YYYY` is assumed for slash dates (US spreadsheet export); the change is visible and undoable.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## What's next (not done in the hour)
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Real database + import batches with undo/rollback.
+- Update-existing-SKU (upsert) mode instead of rejecting duplicates against inventory.
+- Excel (.xlsx) input, saved column mappings per source, virtualized grid for 10k+ rows.

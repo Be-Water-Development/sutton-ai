@@ -120,8 +120,8 @@ export function fixValue(key: string, v: string): [string, string] | null {
   }
   if (isBoolField(key)) {
     const l = t.toLowerCase();
-    if (l !== "true" && TRUE_WORDS.includes(l)) return ["true", `Read “${t}” as true`];
-    if (l !== "false" && FALSE_WORDS.includes(l)) return ["false", `Read “${t}” as false`];
+    if (t !== "true" && TRUE_WORDS.includes(l)) return ["true", `Read “${t}” as true`];
+    if (t !== "false" && FALSE_WORDS.includes(l)) return ["false", `Read “${t}” as false`];
   }
   if (isMoneyField(key)) {
     let s = t.replace(/^\$|\s*usd$/i, "").replace(/^\$/, "").trim();
