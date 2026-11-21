@@ -4,15 +4,17 @@
 
 **Goal:** A local web app where a warehouse ops admin drops a messy CSV, gets headers mapped and safe fixes applied automatically (with a visible diff), fixes the remaining bad rows inline, sees exactly what will import, commits, and gets a clear receipt of what got in and what didn't.
 
-**Architecture:** One npm package. `shared/` holds pure TS (header mapping, normalization/auto-fix, validation) used by both the React client (live re-validation while editing) and the Express server (authoritative validation on commit). Server persists items to `data/inventory.json` and proxies AI calls to OpenRouter so the key never reaches the browser.
+**Architecture:** Single Next.js (App Router) app — one process, one `npm run dev`. `src/lib/importer.ts` holds pure TS (header mapping, auto-fix, validation, canonical item conversion) used by both the client page (live re-validation while editing) and the API route handlers (authoritative validation on commit). Route handlers persist items to `data/inventory.json` and proxy AI calls to OpenRouter so the key never reaches the browser.
 
-**Tech Stack:** Node 24, Vite + React + TypeScript, Express (run via tsx), papaparse (CSV with quoted newlines), vitest.
+**Decision (4:58 PM):** Switched from Vite + Express to Next.js — one process instead of two, built-in API routes for the server-side AI key, familiar to reviewers. Cost: slightly slower dev compile; irrelevant at this size.
+
+**Tech Stack:** Node 24, Next.js 15 (App Router, Turbopack) + React + TypeScript + Tailwind, papaparse (CSV with quoted newlines), vitest.
 
 **Spec:** Take-home brief (Item schema + CSV encoding), `samples/schema.json`, `samples/items_clean.csv`, `samples/items_messy.csv`.
 
 ## Global Constraints
 
-- Runs locally; README has exact commands (`npm install`, `npm run dev`).
+- Runs locally; README has exact commands (`npm install`, `npm run dev`, open http://localhost:3000). Key in `.env.local`.
 - `OPENROUTER_API_KEY` read from env only; app fully works without it (AI buttons disabled with a hint).
 - sku: `^[A-Z]{4}-[A-Z0-9]{3}$`, unique across file AND existing records.
 - name 1–120 chars after trim. category ∈ raw-materials, components, finished-goods, packaging, supplies. uom ∈ EA, BX, KG, M, L.
@@ -35,7 +37,7 @@
 
 ### Task 1: Scaffold + shared schema/validation
 
-**Files:** `package.json`, `vite.config.ts`, `tsconfig.json`, `index.html`, `shared/schema.ts`, `shared/validate.ts`, `shared/validate.test.ts`
+**Files:** `src/lib/importer.ts`, `src/lib/importer.test.ts` (Next scaffold via create-next-app)
 
 **Interfaces — Produces:**
 - `FIELDS: FieldDef[]` (`{ key, label, required, aliases: string[] }`) for every flat CSV column (incl. `length`, `dimension_unit`, `vendor_1_name`…).
@@ -49,7 +51,7 @@
 
 ### Task 2: Header mapping + auto-fix (shared)
 
-**Files:** `shared/mapping.ts`, `shared/autofix.ts`, tests alongside.
+**Files:** `src/lib/importer.ts` (same module), `src/lib/importer.test.ts`.
 
 **Interfaces — Produces:**
 - `guessMapping(headers: string[]): Record<string, string | null>` (source header → field key; normalized-name + alias match).
@@ -62,7 +64,7 @@ Fixes (only unambiguous): trim/collapse whitespace; sku uppercase + separator no
 
 ### Task 3: Server
 
-**Files:** `server/index.ts`, `server/ai.ts`, `data/` (gitignored json).
+**Files:** `src/app/api/items/route.ts`, `src/app/api/import/route.ts`, `src/app/api/ai/map/route.ts`, `src/app/api/ai/fix/route.ts`, `src/app/api/config/route.ts`, `src/lib/store.ts`, `src/lib/ai.ts`, `data/` (gitignored json).
 
 - `GET /api/items`, `DELETE /api/items` (reset for demo), `POST /api/import {rows: RawRow[]}` → re-validate (incl. existing SKUs) → `{ imported: Item[], rejected: {index, row, errors}[] }`.
 - `POST /api/ai/map {headers, samples}` → mapping for headers left unmapped.
@@ -72,7 +74,7 @@ Fixes (only unambiguous): trim/collapse whitespace; sku uppercase + separator no
 
 ### Task 4: UI flow (the bulk of the hour)
 
-**Files:** `src/App.tsx`, `src/steps/Upload.tsx`, `src/steps/Mapping.tsx`, `src/steps/Review.tsx`, `src/steps/Done.tsx`, `src/styles.css`.
+**Files:** `src/app/page.tsx` (client component, step state machine), `src/components/Upload.tsx`, `Mapping.tsx`, `Review.tsx`, `Done.tsx`, `src/app/globals.css`.
 
 1. **Upload:** drag-drop/browse, "try sample" buttons, shows existing inventory count.
 2. **Mapping:** auto-mapped table (source header → field dropdown, sample values, confidence badge), "Ask AI" for unmapped, required-field-missing warning.
