@@ -442,7 +442,7 @@ function download(name: string, text: string) {
 
 function Done({ result, rows, onAgain, onFixRejects }: { result: ImportResult; rows: WorkRow[]; onAgain: () => void; onFixRejects: (rows: WorkRow[]) => void }) {
   const { imported, rejected, excluded } = result;
-  const fixedCount = rows.filter((r) => imported.some((i) => i.sku === r.row.sku) && (r.autoChanges.length || Object.keys(r.edited).length)).length;
+  const fixedCount = rows.filter((r) => imported.some((i) => i.sku === r.row.sku) && (r.autoChanges.some((c) => !c.reverted) || Object.keys(r.edited).length)).length;
   return (
     <div className="mx-auto max-w-5xl">
       <div className="rounded-2xl border border-emerald-200 bg-emerald-50 p-6">

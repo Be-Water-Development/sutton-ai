@@ -178,11 +178,24 @@ export default function Review(props: {
         const edited = { ...r.edited };
         const val = field in edited ? edited[field] : r.original[field] ?? "";
         delete edited[field];
-        const autoChanges = field in r.edited ? r.autoChanges : r.autoChanges.filter((c) => c.field !== field);
+        // Keep reverted auto-fixes in the list (marked) so the admin can see and redo them.
+        const autoChanges = field in r.edited ? r.autoChanges : r.autoChanges.map((c) => (c.field === field ? { ...c, reverted: true } : c));
         return { ...r, row: { ...r.row, [field]: val }, edited, autoChanges };
       }),
     );
   }
+
+  function redoAutoFix(id: number, field: string) {
+    setRows((rs) =>
+      rs.map((r) => {
+        if (r.id !== id) return r;
+        const c = r.autoChanges.find((x) => x.field === field);
+        if (!c) return r;
+        return { ...r, row: { ...r.row, [field]: c.to }, autoChanges: r.autoChanges.map((x) => (x.field === field ? { ...x, reverted: false } : x)) };
+      }),
+    );
+  }
+  const activeFixes = (r: WorkRow) => r.autoChanges.filter((c) => !c.reverted).length;
 
   async function askAi() {
     setAiBusy(true);
@@ -227,7 +240,7 @@ export default function Review(props: {
   const existingHits = rows.filter((r) => !r.excluded && existing.has((r.row.sku ?? "").trim())).length;
   const readyRows = rows.filter((r, i) => !r.excluded && errors[i].length === 0);
   const editedReady = readyRows.filter((r) => Object.keys(r.edited).length > 0).length;
-  const cleanedReady = readyRows.filter((r) => r.autoChanges.length > 0 && !Object.keys(r.edited).length).length;
+  const cleanedReady = readyRows.filter((r) => activeFixes(r) > 0 && !Object.keys(r.edited).length).length;
 
   return (
     <div className="flex flex-col gap-4 pb-28">
@@ -239,7 +252,7 @@ export default function Review(props: {
           <div className="border-b border-slate-200 p-4">
             <h2 className="text-lg font-semibold">Step 1 · We cleaned up {cleaned.length} row{cleaned.length === 1 ? "" : "s"} for you</h2>
             <p className="text-sm text-slate-600">
-              Formatting fixes we're certain about ({cleaned.reduce((n, r) => n + r.autoChanges.length, 0)} values). Nothing has been saved yet — undo anything that looks wrong.
+              Formatting fixes we're certain about ({cleaned.reduce((n, r) => n + r.autoChanges.length, 0)} values). Nothing has been saved yet. If a fix looks wrong, “Keep original” puts your value back — the row then shows up in the next step if it still breaks a rule.
             </p>
           </div>
           {cleaned.length === 0 ? (
@@ -261,7 +274,7 @@ export default function Review(props: {
                 <tbody>
                   {cleaned.flatMap((r) =>
                     r.autoChanges.map((c, j) => (
-                      <tr key={`${r.id}-${c.field}`} className={j === 0 ? "border-t border-slate-200" : ""}>
+                      <tr key={`${r.id}-${c.field}`} className={`${j === 0 ? "border-t border-slate-200" : ""} ${c.reverted ? "bg-slate-50 text-slate-400" : ""}`}>
                         <td className="px-3 py-1.5 align-top tabular-nums text-slate-500">{j === 0 ? r.id : ""}</td>
                         <td className="px-3 py-1.5 align-top">
                           {j === 0 && (
@@ -272,16 +285,22 @@ export default function Review(props: {
                         </td>
                         <td className="px-3 py-1.5 text-slate-600">{label(c.field)}</td>
                         <td className="px-3 py-1.5">
-                          <code className="whitespace-pre rounded bg-rose-50 px-1.5 py-0.5 text-rose-800 line-through decoration-rose-300">{c.from === "" ? "(empty)" : JSON.stringify(c.from).slice(1, -1)}</code>
+                          <code className="whitespace-pre rounded bg-rose-50 px-1.5 py-0.5 text-rose-800">{c.from === "" ? "(empty)" : <ShowSpaces s={c.from} />}</code>
                         </td>
                         <td className="px-3 py-1.5">
-                          <code className="rounded bg-emerald-50 px-1.5 py-0.5 text-emerald-800">{c.to}</code>
+                          <code className={`rounded px-1.5 py-0.5 ${c.reverted ? "bg-slate-100 text-slate-400 line-through" : "bg-emerald-50 text-emerald-800"}`}>{c.to}</code>
                         </td>
-                        <td className="px-3 py-1.5 text-xs text-slate-500">{c.reason}</td>
-                        <td className="px-3 py-1.5 text-right">
-                          <button onClick={() => revertField(r.id, c.field)} className="text-xs text-indigo-600 hover:underline">
-                            undo
-                          </button>
+                        <td className="px-3 py-1.5 text-xs text-slate-500">{c.reverted ? "You kept the original value" : c.reason}</td>
+                        <td className="whitespace-nowrap px-3 py-1.5 text-right">
+                          {c.reverted ? (
+                            <button onClick={() => redoAutoFix(r.id, c.field)} className="text-xs text-indigo-600 hover:underline">
+                              Use cleaned value
+                            </button>
+                          ) : (
+                            <button onClick={() => revertField(r.id, c.field)} className="text-xs text-indigo-600 hover:underline">
+                              Keep original
+                            </button>
+                          )}
                         </td>
                       </tr>
                     )),
@@ -499,7 +518,7 @@ export default function Review(props: {
                     <td className="px-3 py-1.5 text-right tabular-nums">${Number(r.row.unit_cost).toFixed(2)}</td>
                     <td className="px-3 py-1.5 text-right tabular-nums">{r.row.quantity_on_hand || 0}</td>
                     <td className="px-3 py-1.5 text-xs">
-                      {Object.keys(r.edited).length > 0 ? <span className="text-sky-700">fixed by you</span> : r.autoChanges.length > 0 ? <span className="text-amber-700">cleaned up</span> : ""}
+                      {Object.keys(r.edited).length > 0 ? <span className="text-sky-700">fixed by you</span> : activeFixes(r) > 0 ? <span className="text-amber-700">cleaned up</span> : ""}
                     </td>
                   </tr>
                 ))}
@@ -573,6 +592,19 @@ export default function Review(props: {
         </div>
       </div>
     </div>
+  );
+}
+
+/** Make leading/trailing spaces visible as faint dots so whitespace fixes are obvious. */
+function ShowSpaces({ s }: { s: string }) {
+  const m = s.match(/^(\s*)([\s\S]*?)(\s*)$/)!;
+  const dots = (w: string) => (w ? <span className="text-rose-300">{"·".repeat(w.length)}</span> : null);
+  return (
+    <>
+      {dots(m[1])}
+      {m[2]}
+      {dots(m[3])}
+    </>
   );
 }
 
