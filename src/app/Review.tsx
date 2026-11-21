@@ -440,7 +440,7 @@ export default function Review(props: {
                             {e.length > 0 && !isEditing && <div className="px-1 text-[11px] leading-tight text-rose-700">{e[0].message}</div>}
                             {userEdited && !e.length && !isEditing && (
                               <div className="flex items-center gap-1 px-1 text-[11px] leading-tight text-slate-500">
-                                <span className="truncate line-through decoration-slate-400">{r.edited[c] || "empty"}</span>
+                                <span className="truncate">was “{r.edited[c] || "empty"}”</span>
                                 <button className="text-indigo-600 hover:underline" onClick={() => revertField(r.id, c)}>
                                   undo
                                 </button>
