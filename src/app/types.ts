@@ -9,7 +9,7 @@ export type WorkRow = {
   excluded: boolean;
 };
 
-export type Suggestion = { id: number; field: string; value: string; reason: string; confidence: "high" | "medium" | "low" };
+export type Suggestion = { id: number; field: string; value: string; reason: string };
 
 export type ImportResult = {
   batch: { id: string; at: string; fileName: string; imported: number; updated?: number; skipped: number };

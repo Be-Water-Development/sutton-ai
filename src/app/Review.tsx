@@ -74,6 +74,7 @@ export default function Review(props: {
     .filter((p): p is NonNullable<typeof p> => !!p)
     .sort((a, b) => a.id - b.id || FIELDS.findIndex((f) => f.key === a.field) - FIELDS.findIndex((f) => f.key === b.field));
   const solvedCount = problems.filter((p) => p.solved).length;
+  const aiRan = asked.size > 0;
 
   function nextProblem(id: number, field: string) {
     const open = problems.filter((p) => !p.solved && !(p.id === id && p.field === field));
@@ -284,15 +285,22 @@ export default function Review(props: {
                 <tr>
                   <th className="w-16 px-4 py-2">Row</th>
                   <th className="w-40 px-2 py-2">Field</th>
-                  <th className="w-72 px-2 py-2">Value</th>
+                  <th className="w-64 px-2 py-2">Original value</th>
                   <th className="px-2 py-2">Problem</th>
+                  {aiRan && (
+                    <>
+                      <th className="w-48 bg-indigo-50 px-2 py-2 text-indigo-700">✨ Proposed value</th>
+                      <th className="w-56 bg-indigo-50 px-2 py-2 text-indigo-700">Reason</th>
+                      <th className="w-36 bg-indigo-50 px-2 py-2"></th>
+                    </>
+                  )}
                   <th className="w-48 px-4 py-2"></th>
                 </tr>
               </thead>
               <tbody>
                 {problems.length === 0 && (
                   <tr>
-                    <td colSpan={5} className="p-10 text-center text-emerald-700">🎉 Nothing left to fix.</td>
+                    <td colSpan={aiRan ? 8 : 5} className="p-10 text-center text-emerald-700">🎉 Nothing left to fix.</td>
                   </tr>
                 )}
                 {problems.map((p) => {
@@ -315,15 +323,6 @@ export default function Review(props: {
                             {val === "" ? <span className="text-slate-400">(empty)</span> : val}
                           </button>
                         )}
-                        {sug && !p.solved && (
-                          <div className="mt-1 rounded-md border border-indigo-200 bg-indigo-50 p-1.5 text-xs text-indigo-900">
-                            ✨ <b>{sug.value}</b> <span className="text-indigo-600">({sug.confidence})</span> — {sug.reason}
-                            <div className="mt-0.5 flex gap-3">
-                              <button className="font-semibold text-indigo-700 hover:underline" onClick={() => commitEdit(sug.id, sug.field, sug.value)}>Accept</button>
-                              <button className="text-slate-500 hover:underline" onClick={() => setSuggestions((s) => s.filter((x) => x !== sug))}>Dismiss</button>
-                            </div>
-                          </div>
-                        )}
                       </td>
                       <td className="px-2 py-2">
                         {p.r.excluded ? (
@@ -334,6 +333,27 @@ export default function Review(props: {
                           <span className="text-rose-700">{p.msgs.join("; ")}</span>
                         )}
                       </td>
+                      {aiRan &&
+                        (sug && !p.solved ? (
+                          <>
+                            <td className="bg-indigo-50/60 px-2 py-1.5">
+                              <code className="block rounded border border-indigo-300 bg-white px-2 py-1 text-indigo-900">{sug.value === "" ? "(empty)" : sug.value}</code>
+                            </td>
+                            <td className="bg-indigo-50/60 px-2 py-2 text-xs text-indigo-900">{sug.reason}</td>
+                            <td className="whitespace-nowrap bg-indigo-50/60 px-2 py-1.5">
+                              <button onClick={() => commitEdit(sug.id, sug.field, sug.value)} className="rounded-md bg-indigo-600 px-2.5 py-1 text-xs font-semibold text-white hover:bg-indigo-700">
+                                Accept
+                              </button>
+                              <button onClick={() => setSuggestions((s) => s.filter((x) => x !== sug))} className="ml-2 text-xs text-slate-500 hover:text-slate-900 hover:underline">
+                                Dismiss
+                              </button>
+                            </td>
+                          </>
+                        ) : (
+                          <td colSpan={3} className="bg-indigo-50/30 px-2 py-2 text-xs text-slate-400">
+                            {p.solved ? "" : asked.has(p.id) ? "No suggestion — needs your input" : "Not checked yet"}
+                          </td>
+                        ))}
                       <td className="whitespace-nowrap px-4 py-2 text-right text-xs">
                         <button onClick={() => setFullRow(p.id)} className="rounded-md border border-slate-300 px-2 py-1 text-slate-700 hover:bg-slate-100">
                           See full row
