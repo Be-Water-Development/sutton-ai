@@ -104,7 +104,45 @@ export default function Review(props: {
     setBulk(null);
   }
 
-  const toggleExclude = (id: number) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, excluded: !r.excluded } : r)));
+  function setField(ids: number[], field: string, value: (r: WorkRow) => string) {
+    setRows((rs) =>
+      rs.map((r) => (ids.includes(r.id) ? { ...r, row: { ...r.row, [field]: value(r) }, edited: { [field]: r.row[field] ?? "", ...r.edited } } : r)),
+    );
+  }
+
+  // Deterministic one-click fixes for common issue groups (the admin decides, we do the typing).
+  function quickFixes(g: { field: string; label: string; ids: number[] }): { label: string; run: () => void }[] {
+    const out: { label: string; run: () => void }[] = [];
+    if (g.label.includes("Discontinued items must have Active = false"))
+      out.push({ label: `Mark ${g.ids.length} as inactive`, run: () => setField(g.ids, "is_active", () => "false") });
+    if (g.label.includes("is duplicated in this file")) {
+      const seen = new Set<string>();
+      const later: number[] = [];
+      for (const r of rows) if (g.ids.includes(r.id)) { const s = r.row.sku; if (seen.has(s)) later.push(r.id); else seen.add(s); }
+      if (later.length) out.push({ label: `Keep first, exclude ${later.length} later copies`, run: () => setRows((rs) => rs.map((r) => (later.includes(r.id) ? { ...r, excluded: true } : r))) });
+    }
+    if (g.label.includes("Only one vendor can be preferred"))
+      out.push({
+        label: "Keep cheapest vendor as preferred",
+        run: () =>
+          setRows((rs) =>
+            rs.map((r) => {
+              if (!g.ids.includes(r.id)) return r;
+              const pref = [1, 2, 3].filter((n) => r.row[`vendor_${n}_preferred`] === "true");
+              const best = pref.reduce((a, b) => (Number(r.row[`vendor_${b}_unit_cost`]) < Number(r.row[`vendor_${a}_unit_cost`]) ? b : a));
+              const row = { ...r.row };
+              const edited = { ...r.edited };
+              for (const n of pref) if (n !== best) { const k = `vendor_${n}_preferred`; if (!(k in edited)) edited[k] = row[k]; row[k] = "false"; }
+              return { ...r, row, edited };
+            }),
+          ),
+      });
+    if (g.label.startsWith("Give length, width and height together"))
+      out.push({ label: "Clear partial dimensions", run: () => ["length", "width", "height"].forEach((f) => setField(g.ids, f, () => "")) });
+    return out;
+  }
+
+  const toggleExclude =(id: number) => setRows((rs) => rs.map((r) => (r.id === id ? { ...r, excluded: !r.excluded } : r)));
 
   function revertField(id: number, field: string) {
     setRows((rs) =>
@@ -197,6 +235,18 @@ export default function Review(props: {
                       <span className="mr-1 inline-block min-w-6 rounded bg-rose-500 px-1.5 text-center font-semibold text-white">{g.ids.length}</span>
                       {g.label}
                     </button>
+                    {issueFilter === key && (
+                      <div className="flex flex-wrap gap-1 px-2 pb-2 pt-1">
+                        {quickFixes(g).map((q) => (
+                          <button key={q.label} onClick={q.run} className="rounded-md bg-slate-900 px-2 py-1 text-[11px] font-medium text-white hover:bg-slate-700">
+                            {q.label}
+                          </button>
+                        ))}
+                        <button onClick={() => { setRows((rs) => rs.map((r) => (g.ids.includes(r.id) ? { ...r, excluded: true } : r))); setIssueFilter(null); }} className="rounded-md border border-slate-300 px-2 py-1 text-[11px] text-slate-700 hover:bg-slate-100">
+                          Exclude these {g.ids.length}
+                        </button>
+                      </div>
+                    )}
                   </li>
                 ))}
               </ul>
