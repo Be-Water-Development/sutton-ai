@@ -23,7 +23,8 @@ export default function Review(props: {
   updateExisting: boolean;
   setUpdateExisting: (v: boolean) => void;
 }) {
-  const { rows, setRows, existing, aiEnabled, phase, setPhase } = props;
+  const { rows, setRows, existing, aiEnabled, setPhase } = props;
+  const phase: Phase = props.phase ?? "clean";
   const [editing, setEditing] = useState<{ id: number; field: string } | null>(null);
   const [bulk, setBulk] = useState<{ field: string; from: string; to: string; ids: number[] } | null>(null);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
